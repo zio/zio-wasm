@@ -2,7 +2,7 @@ package zio.wasm.syntax
 
 import zio.*
 import zio.test.*
-import zio.wasm.{AstGen, Name}
+import zio.wasm.*
 
 object BinarySpec extends ZIOSpecDefault {
   override def spec: Spec[Any, Any] =
@@ -148,10 +148,110 @@ object BinarySpec extends ZIOSpecDefault {
         test("BlockType sequence roundtrip") {
           check(Gen.chunkOf(AstGen.blockType)) { value =>
             for {
-              bytes  <- ZIO.fromEither(Binary.blockType.repeat.print(value))
-              result <- ZIO.fromEither(Binary.blockType.repeat.parseChunk(bytes))
+              bytes  <- ZIO.fromEither(Binary.blockType.repeat0.print(value))
+              result <- ZIO.fromEither(Binary.blockType.repeat0.parseChunk(bytes))
             } yield assertTrue(result == value)
           }
+        }
+      ),
+      suite("MemArg")(
+        test("MemArg roundtrip") {
+          check(AstGen.memArg) { value =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.memArg.print(value))
+              result <- ZIO.fromEither(Binary.memArg.parseChunk(bytes))
+            } yield assertTrue(result == value)
+          }
+        }
+      ),
+      suite("expr")(
+        test("Expr roundtrip 1") {
+          val value = Expr(Chunk(Instr.I32Const(1), Instr.I32Const(2), Instr.IAdd(IntWidth.I32)))
+          for {
+            bytes  <- ZIO.fromEither(Binary.expr.print(value))
+            result <- ZIO.fromEither(Binary.expr.parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 2") {
+          val value1 = Expr(Chunk(Instr.I32Const(1), Instr.I32Const(2), Instr.IAdd(IntWidth.I32)))
+          val value2 = Expr(Chunk(Instr.Return))
+          val value  = Chunk(value1, value2)
+          for {
+            bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
+            result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 3") {
+          val value1 = Expr(
+            Chunk(Instr.I32Const(1), Instr.Block(BlockType.None, Chunk(Instr.I32Const(2))), Instr.IAdd(IntWidth.I32))
+          )
+          val value2 = Expr(Chunk(Instr.Return))
+          val value  = Chunk(value1, value2)
+          for {
+            bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
+            result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 4") {
+          val value1 = Expr(
+            Chunk(
+              Instr.I32Const(1),
+              Instr.If(BlockType.None, Chunk(Instr.I32Const(2)), Chunk.empty),
+              Instr.IAdd(IntWidth.I32)
+            )
+          )
+          val value2 = Expr(Chunk(Instr.Return))
+          val value  = Chunk(value1, value2)
+          for {
+            bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
+            result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 5") {
+          val value1 = Expr(
+            Chunk(
+              Instr.I32Const(1),
+              Instr.If(BlockType.None, Chunk(Instr.I32Const(2)), Chunk(Instr.Nop)),
+              Instr.IAdd(IntWidth.I32)
+            )
+          )
+          val value2 = Expr(Chunk(Instr.Return))
+          val value  = Chunk(value1, value2)
+          for {
+            bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
+            _      <- ZIO.debug(bytes.map(_.toInt.toHexString).mkString(" "))
+            result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 6") {
+          val value =
+            Expr(Chunk(Instr.I32Const(1), Instr.Store16(NumType.I32, MemArg(1, 0)), Instr.Br(LabelIdx.fromInt(1))))
+          for {
+            bytes  <- ZIO.fromEither(Binary.expr.print(value))
+            result <- ZIO.fromEither(Binary.expr.parseChunk(bytes))
+          } yield assertTrue(result == value)
+        },
+        test("Expr roundtrip 7") {
+          val value1 = Expr(
+            Chunk(
+              Instr.I32Const(1),
+              Instr.Block(
+                BlockType.None,
+                Chunk(
+                  Instr.I32Const(2),
+                  Instr.If(BlockType.None, Chunk(Instr.I32Const(3), Instr.Br(LabelIdx.fromInt(1))), Chunk.empty),
+                  Instr.Loop(BlockType.None, Chunk(Instr.I32Const(2), Instr.BrIf(LabelIdx.fromInt(0))))
+                )
+              ),
+              Instr.IAdd(IntWidth.I32)
+            )
+          )
+          val value2 = Expr(Chunk(Instr.Return))
+          val value  = Chunk(value1, value1, value2, value2)
+          for {
+            bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
+            result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
+          } yield assertTrue(result == value)
         }
       )
     )

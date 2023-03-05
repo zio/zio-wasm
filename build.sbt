@@ -17,7 +17,7 @@ addCommandAlias(
 
 val zioVersion       = "2.0.9"
 val zioNioVersion    = "2.0.1"
-val zioParserVersion = "0.1.8+36-628c70b0+20230305-0911-SNAPSHOT"
+val zioParserVersion = "0.1.8+36-628c70b0+20230305-1817-SNAPSHOT"
 
 lazy val root =
   (project in file("."))

@@ -63,4 +63,10 @@ object AstGen {
     valType.map(BlockType.Value.apply),
     Gen.int.map(i => BlockType.Index(TypeIdx.fromInt(i)))
   )
+
+  val memArg: Gen[Any, MemArg] =
+    for {
+      align  <- Gen.int
+      offset <- Gen.int
+    } yield MemArg(align, offset)
 }

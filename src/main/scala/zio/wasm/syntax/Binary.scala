@@ -211,14 +211,14 @@ object Binary {
       vec  <- elem.asParser.exactly(size)
     } yield vec
 
-    parser <=> printer
+    (parser <=> printer) ?? "vec"
   }
 
   private[wasm] val name: BinarySyntax[Name] =
     vec(anyByte).transform(
       bytes => Name.fromBytes(bytes),
       name => name.toBytes
-    )
+    ) ?? "name"
 
   private[wasm] val numType: BinarySyntax[NumType] =
     anyByte.transformEither(
@@ -235,7 +235,7 @@ object Binary {
         case NumType.F32 => Right(0x7d)
         case NumType.F64 => Right(0x7c)
       }
-    )
+    ) ?? "numType"
 
   private[wasm] val vecType: BinarySyntax[VecType] =
     anyByte.transformEither(
@@ -244,7 +244,7 @@ object Binary {
         case _    => Left(SyntaxError.InvalidVecType)
       },
       { case VecType.V128 => Right(0x7b) }
-    )
+    ) ?? "vecType"
 
   private[wasm] val refType: BinarySyntax[RefType] =
     anyByte.transformEither(
@@ -257,22 +257,22 @@ object Binary {
         case RefType.FuncRef   => Right(0x70)
         case RefType.ExternRef => Right(0x6f)
       }
-    )
+    ) ?? "refType"
 
   private[wasm] val valType: BinarySyntax[ValType] =
-    refType.orElseU(numType).orElseU(vecType)
+    refType.orElseU(numType).orElseU(vecType) ?? "valType"
 
   private[wasm] val resultType: BinarySyntax[ResultType] =
     vec(valType).transform(
       ResultType.apply,
       _.values
-    )
+    ) ?? "resultType"
 
   private[wasm] val funcType: BinarySyntax[FuncType] =
     (specificByte(0x60) ~ resultType ~ resultType).transform(
       { case (_, params, results) => FuncType(params, results) },
       { case FuncType(params, results) => (0x60, params, results) }
-    )
+    ) ?? "funcType"
 
   private[wasm] val limits: BinarySyntax[Limits] =
     (specificByte(0x00) ~ u32)
@@ -291,10 +291,10 @@ object Binary {
             case Limits(_, None)        => Left(SyntaxError.InvalidCase)
           }
         )
-      )
+      ) ?? "limits"
 
   private[wasm] val memoryType: BinarySyntax[MemType] =
-    limits.of[MemType]
+    limits.of[MemType] ?? "memoryType"
 
   private[wasm] val tableType: BinarySyntax[TableType] =
     (refType ~ limits).transform(
@@ -304,7 +304,7 @@ object Binary {
       { case TableType(elemType, limits) =>
         (limits, elemType)
       }
-    )
+    ) ?? "tableType"
 
   private[wasm] val mut: BinarySyntax[Mut] =
     anyByte.transformEither(
@@ -317,76 +317,76 @@ object Binary {
         case Mut.Const => Right(0x00)
         case Mut.Var   => Right(0x01)
       }
-    )
+    ) ?? "mut"
 
   private[wasm] val globalType: BinarySyntax[GlobalType] =
     (valType ~ mut).transform(
       { case (valueType, mut) => GlobalType(mut, valueType) },
       { case GlobalType(mut, valueType) => (valueType, mut) }
-    )
+    ) ?? "globalType"
 
   private[wasm] val memArg: BinarySyntax[MemArg] =
-    (u32 ~ u32).of[MemArg]
+    (u32 ~ u32).of[MemArg] ?? "memArg"
 
   private[wasm] val typeIdx: BinarySyntax[TypeIdx] =
     u32.transform(
       TypeIdx.fromInt,
       _.toInt
-    )
+    ) ?? "typeIdx"
 
   private[wasm] val funcIdx: BinarySyntax[FuncIdx] =
     u32.transform(
       FuncIdx.fromInt,
       _.toInt
-    )
+    ) ?? "funcIdx"
 
   private[wasm] val dataIdx: BinarySyntax[DataIdx] =
     u32.transform(
       DataIdx.fromInt,
       _.toInt
-    )
+    ) ?? "dataIdx"
 
   private[wasm] val tableIdx: BinarySyntax[TableIdx] =
     u32.transform(
       TableIdx.fromInt,
       _.toInt
-    )
+    ) ?? "tableIdx"
 
   private[wasm] val elemIdx: BinarySyntax[ElemIdx] =
     u32.transform(
       ElemIdx.fromInt,
       _.toInt
-    )
+    ) ?? "elemIdx"
 
   private[wasm] val memIdx: BinarySyntax[MemIdx] =
     u32.transform(
       MemIdx.fromInt,
       _.toInt
-    )
+    ) ?? "memIdx"
 
   private[wasm] val globalIdx: BinarySyntax[GlobalIdx] =
     u32.transform(
       GlobalIdx.fromInt,
       _.toInt
-    )
+    ) ?? "globalIdx"
 
   private[wasm] val localIdx: BinarySyntax[LocalIdx] =
     u32.transform(
       LocalIdx.fromInt,
       _.toInt
-    )
+    ) ?? "localIdx"
 
   private[wasm] val labelIdx: BinarySyntax[LabelIdx] =
     u32.transform(
       LabelIdx.fromInt,
       _.toInt
-    )
+    ) ?? "labelIdx"
 
   private[wasm] val laneIdx: BinarySyntax[LaneIdx] =
     anyByte.transform(
       LaneIdx.fromByte,
       _.toByte
-    )
+    ) ?? "laneIdx"
 
   private[wasm] val blockType: BinarySyntax[BlockType] =
     specificByte(0x40)
@@ -397,503 +397,501 @@ object Binary {
       )
       .widenWith(SyntaxError.InvalidCase)
       .orElse(valType.of[BlockType.Value].widenWith(SyntaxError.InvalidCase))
-      .orElse(typeIdx.of[BlockType.Index].widenWith(SyntaxError.InvalidCase))
+      .orElse(typeIdx.of[BlockType.Index].widenWith(SyntaxError.InvalidCase)) ?? "blockType"
 
   private object Instructions {
     val read: BinaryReader[Instr] =
-      anyByte.asParser.map(_.toInt).flatMap { b =>
-        b match {
-          case 0x41 => i32.asParser.map(Instr.I32Const.apply)
-          case 0x42 => i64.asParser.map(Instr.I64Const.apply)
-          case 0x43 => f32.asParser.map(Instr.F32Const.apply)
-          case 0x44 => f64.asParser.map(Instr.F64Const.apply)
-          case 0x45 => Parser.succeed(Instr.IEqz(IntWidth.I32))
-          case 0x50 => Parser.succeed(Instr.IEqz(IntWidth.I64))
-          case 0x46 => Parser.succeed(Instr.IEq(IntWidth.I32))
-          case 0x51 => Parser.succeed(Instr.IEq(IntWidth.I64))
-          case 0x47 => Parser.succeed(Instr.INe(IntWidth.I32))
-          case 0x52 => Parser.succeed(Instr.INe(IntWidth.I64))
-          case 0x48 => Parser.succeed(Instr.ILt(IntWidth.I32, Signedness.Signed))
-          case 0x49 => Parser.succeed(Instr.ILt(IntWidth.I32, Signedness.Unsigned))
-          case 0x53 => Parser.succeed(Instr.ILt(IntWidth.I64, Signedness.Signed))
-          case 0x54 => Parser.succeed(Instr.ILt(IntWidth.I64, Signedness.Unsigned))
-          case 0x4a => Parser.succeed(Instr.IGt(IntWidth.I32, Signedness.Signed))
-          case 0x4b => Parser.succeed(Instr.IGt(IntWidth.I32, Signedness.Unsigned))
-          case 0x55 => Parser.succeed(Instr.IGt(IntWidth.I64, Signedness.Signed))
-          case 0x56 => Parser.succeed(Instr.IGt(IntWidth.I64, Signedness.Unsigned))
-          case 0x4c => Parser.succeed(Instr.ILe(IntWidth.I32, Signedness.Signed))
-          case 0x4d => Parser.succeed(Instr.ILe(IntWidth.I32, Signedness.Unsigned))
-          case 0x57 => Parser.succeed(Instr.ILe(IntWidth.I64, Signedness.Signed))
-          case 0x58 => Parser.succeed(Instr.ILe(IntWidth.I64, Signedness.Unsigned))
-          case 0x4e => Parser.succeed(Instr.IGe(IntWidth.I32, Signedness.Signed))
-          case 0x4f => Parser.succeed(Instr.IGe(IntWidth.I32, Signedness.Unsigned))
-          case 0x59 => Parser.succeed(Instr.IGe(IntWidth.I64, Signedness.Signed))
-          case 0x5a => Parser.succeed(Instr.IGe(IntWidth.I64, Signedness.Unsigned))
-          case 0x5b => Parser.succeed(Instr.FEq(FloatWidth.F32))
-          case 0x61 => Parser.succeed(Instr.FEq(FloatWidth.F64))
-          case 0x5c => Parser.succeed(Instr.FNe(FloatWidth.F32))
-          case 0x62 => Parser.succeed(Instr.FNe(FloatWidth.F64))
-          case 0x5d => Parser.succeed(Instr.FLt(FloatWidth.F32))
-          case 0x63 => Parser.succeed(Instr.FLt(FloatWidth.F64))
-          case 0x5e => Parser.succeed(Instr.FGt(FloatWidth.F32))
-          case 0x64 => Parser.succeed(Instr.FGt(FloatWidth.F64))
-          case 0x5f => Parser.succeed(Instr.FLe(FloatWidth.F32))
-          case 0x65 => Parser.succeed(Instr.FLe(FloatWidth.F64))
-          case 0x60 => Parser.succeed(Instr.FGe(FloatWidth.F32))
-          case 0x66 => Parser.succeed(Instr.FGe(FloatWidth.F64))
-          case 0x67 => Parser.succeed(Instr.IClz(IntWidth.I32))
-          case 0x79 => Parser.succeed(Instr.IClz(IntWidth.I64))
-          case 0x68 => Parser.succeed(Instr.ICtz(IntWidth.I32))
-          case 0x7a => Parser.succeed(Instr.ICtz(IntWidth.I64))
-          case 0x69 => Parser.succeed(Instr.IPopCnt(IntWidth.I32))
-          case 0x7b => Parser.succeed(Instr.IPopCnt(IntWidth.I64))
-          case 0x6a => Parser.succeed(Instr.IAdd(IntWidth.I32))
-          case 0x7c => Parser.succeed(Instr.IAdd(IntWidth.I64))
-          case 0x6b => Parser.succeed(Instr.ISub(IntWidth.I32))
-          case 0x7d => Parser.succeed(Instr.ISub(IntWidth.I64))
-          case 0x6c => Parser.succeed(Instr.IMul(IntWidth.I32))
-          case 0x7e => Parser.succeed(Instr.IMul(IntWidth.I64))
-          case 0x6d => Parser.succeed(Instr.IDiv(IntWidth.I32, Signedness.Signed))
-          case 0x6e => Parser.succeed(Instr.IDiv(IntWidth.I32, Signedness.Unsigned))
-          case 0x7f => Parser.succeed(Instr.IDiv(IntWidth.I64, Signedness.Signed))
-          case 0x80 => Parser.succeed(Instr.IDiv(IntWidth.I64, Signedness.Unsigned))
-          case 0x6f => Parser.succeed(Instr.IRem(IntWidth.I32, Signedness.Signed))
-          case 0x70 => Parser.succeed(Instr.IRem(IntWidth.I32, Signedness.Unsigned))
-          case 0x81 => Parser.succeed(Instr.IRem(IntWidth.I64, Signedness.Signed))
-          case 0x82 => Parser.succeed(Instr.IRem(IntWidth.I64, Signedness.Unsigned))
-          case 0x71 => Parser.succeed(Instr.IAnd(IntWidth.I32))
-          case 0x83 => Parser.succeed(Instr.IAnd(IntWidth.I64))
-          case 0x72 => Parser.succeed(Instr.IOr(IntWidth.I32))
-          case 0x84 => Parser.succeed(Instr.IOr(IntWidth.I64))
-          case 0x73 => Parser.succeed(Instr.IXor(IntWidth.I32))
-          case 0x85 => Parser.succeed(Instr.IXor(IntWidth.I64))
-          case 0x74 => Parser.succeed(Instr.IShl(IntWidth.I32))
-          case 0x86 => Parser.succeed(Instr.IShl(IntWidth.I64))
-          case 0x75 => Parser.succeed(Instr.IShr(IntWidth.I32, Signedness.Signed))
-          case 0x76 => Parser.succeed(Instr.IShr(IntWidth.I32, Signedness.Unsigned))
-          case 0x87 => Parser.succeed(Instr.IShr(IntWidth.I64, Signedness.Signed))
-          case 0x88 => Parser.succeed(Instr.IShr(IntWidth.I64, Signedness.Unsigned))
-          case 0x77 => Parser.succeed(Instr.IRotL(IntWidth.I32))
-          case 0x89 => Parser.succeed(Instr.IRotL(IntWidth.I64))
-          case 0x78 => Parser.succeed(Instr.IRotR(IntWidth.I32))
-          case 0x8a => Parser.succeed(Instr.IRotR(IntWidth.I64))
-          case 0x8b => Parser.succeed(Instr.FAbs(FloatWidth.F32))
-          case 0x99 => Parser.succeed(Instr.FAbs(FloatWidth.F64))
-          case 0x8c => Parser.succeed(Instr.FNeg(FloatWidth.F32))
-          case 0x9a => Parser.succeed(Instr.FNeg(FloatWidth.F64))
-          case 0x8d => Parser.succeed(Instr.FCeil(FloatWidth.F32))
-          case 0x9b => Parser.succeed(Instr.FCeil(FloatWidth.F64))
-          case 0x8e => Parser.succeed(Instr.FFloor(FloatWidth.F32))
-          case 0x9c => Parser.succeed(Instr.FFloor(FloatWidth.F64))
-          case 0x8f => Parser.succeed(Instr.FTrunc(FloatWidth.F32))
-          case 0x9d => Parser.succeed(Instr.FTrunc(FloatWidth.F64))
-          case 0x90 => Parser.succeed(Instr.FNearest(FloatWidth.F32))
-          case 0x9e => Parser.succeed(Instr.FNearest(FloatWidth.F64))
-          case 0x91 => Parser.succeed(Instr.FSqrt(FloatWidth.F32))
-          case 0x9f => Parser.succeed(Instr.FSqrt(FloatWidth.F64))
-          case 0x92 => Parser.succeed(Instr.FAdd(FloatWidth.F32))
-          case 0xa0 => Parser.succeed(Instr.FAdd(FloatWidth.F64))
-          case 0x93 => Parser.succeed(Instr.FSub(FloatWidth.F32))
-          case 0xa1 => Parser.succeed(Instr.FSub(FloatWidth.F64))
-          case 0x94 => Parser.succeed(Instr.FMul(FloatWidth.F32))
-          case 0xa2 => Parser.succeed(Instr.FMul(FloatWidth.F64))
-          case 0x95 => Parser.succeed(Instr.FDiv(FloatWidth.F32))
-          case 0xa3 => Parser.succeed(Instr.FDiv(FloatWidth.F64))
-          case 0x96 => Parser.succeed(Instr.FMin(FloatWidth.F32))
-          case 0xa4 => Parser.succeed(Instr.FMin(FloatWidth.F64))
-          case 0x97 => Parser.succeed(Instr.FMax(FloatWidth.F32))
-          case 0xa5 => Parser.succeed(Instr.FMax(FloatWidth.F64))
-          case 0x98 => Parser.succeed(Instr.FCopySign(FloatWidth.F32))
-          case 0xa6 => Parser.succeed(Instr.FCopySign(FloatWidth.F64))
-          case 0xa7 => Parser.succeed(Instr.I32WrapI64)
-          case 0xa8 => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Signed))
-          case 0xa9 => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned))
-          case 0xaa => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Signed))
-          case 0xab => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned))
-          case 0xae => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Signed))
-          case 0xaf => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned))
-          case 0xb0 => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Signed))
-          case 0xb1 => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned))
-          case 0xac => Parser.succeed(Instr.I64ExtendI32(Signedness.Signed))
-          case 0xad => Parser.succeed(Instr.I64ExtendI32(Signedness.Unsigned))
-          case 0xc4 => Parser.succeed(Instr.I64Extend32S)
-          case 0xc0 => Parser.succeed(Instr.IExtend8S(IntWidth.I32))
-          case 0xc2 => Parser.succeed(Instr.IExtend8S(IntWidth.I64))
-          case 0xc1 => Parser.succeed(Instr.IExtend16S(IntWidth.I32))
-          case 0xc3 => Parser.succeed(Instr.IExtend16S(IntWidth.I64))
-          case 0xb2 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Signed))
-          case 0xb3 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Unsigned))
-          case 0xb4 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Signed))
-          case 0xb5 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Unsigned))
-          case 0xb7 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Signed))
-          case 0xb8 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Unsigned))
-          case 0xb9 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Signed))
-          case 0xba => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Unsigned))
-          case 0xb6 => Parser.succeed(Instr.F32DemoteF64)
-          case 0xbb => Parser.succeed(Instr.F64PromoteF32)
-          case 0xbc => Parser.succeed(Instr.IReinterpretF(IntWidth.I32))
-          case 0xbd => Parser.succeed(Instr.IReinterpretF(IntWidth.I64))
-          case 0xbe => Parser.succeed(Instr.FReinterpretI(FloatWidth.F32))
-          case 0xbf => Parser.succeed(Instr.FReinterpretI(FloatWidth.F64))
-          case 0xfc =>
-            u32.asParser.flatMap {
-              case 0  => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Signed))
-              case 1  => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned))
-              case 2  => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Signed))
-              case 3  => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned))
-              case 4  => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Signed))
-              case 5  => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned))
-              case 6  => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Signed))
-              case 7  => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned))
-              case 16 => Binary.tableIdx.asParser.to[Instr.TableSize]
-              case 15 => Binary.tableIdx.asParser.to[Instr.TableGrow]
-              case 17 => Binary.tableIdx.asParser.to[Instr.TableFill]
-              case 14 => (Binary.tableIdx ~ Binary.tableIdx).asParser.to[Instr.TableCopy]
-              case 12 => (Binary.tableIdx ~ Binary.elemIdx).asParser.to[Instr.TableInit]
-              case 13 => Binary.elemIdx.asParser.to[Instr.ElemDrop]
-              case 11 => specificByte(0x00).asParser.as(Instr.MemoryFill)
-              case 10 => (specificByte(0x00) ~ specificByte(0x00)).asParser.as(Instr.MemoryCopy)
-              case 8  => (Binary.dataIdx <~ specificByte(0x00).unit(0x00)).asParser.to[Instr.MemoryInit]
-              case 9  => Binary.dataIdx.asParser.to[Instr.DataDrop]
-              case _  => Parser.fail(SyntaxError.InvalidOpcode)
-            }
-          case 0xfd =>
-            u32.asParser.flatMap {
-              case 12  => i128.asParser.map(Instr.V128Const.apply)
-              case 77  => Parser.succeed(Instr.V128Not)
-              case 78  => Parser.succeed(Instr.V128And)
-              case 79  => Parser.succeed(Instr.V128AndNot)
-              case 80  => Parser.succeed(Instr.V128Or)
-              case 81  => Parser.succeed(Instr.V128XOr)
-              case 82  => Parser.succeed(Instr.V128BitSelect)
-              case 83  => Parser.succeed(Instr.V128AnyTrue)
-              case 13  =>
-                (laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser)
-                  .to[Instr.VI8x16Shuffle]
-              case 14  => Parser.succeed(Instr.VI18x16Swizzle)
-              case 15  => Parser.succeed(Instr.VSplat(IShape.I8x16))
-              case 16  => Parser.succeed(Instr.VSplat(IShape.I16x8))
-              case 17  => Parser.succeed(Instr.VSplat(IShape.I32x4))
-              case 18  => Parser.succeed(Instr.VSplat(IShape.I64x2))
-              case 19  => Parser.succeed(Instr.VSplat(FShape.F32x4))
-              case 20  => Parser.succeed(Instr.VSplat(FShape.F64x2))
-              case 21  => laneIdx.asParser.map(laneIdx => Instr.VI8x16ExtractLane(Signedness.Signed, laneIdx))
-              case 22  => laneIdx.asParser.map(laneIdx => Instr.VI8x16ExtractLane(Signedness.Unsigned, laneIdx))
-              case 24  => laneIdx.asParser.map(laneIdx => Instr.VI16x8ExtractLane(Signedness.Signed, laneIdx))
-              case 25  => laneIdx.asParser.map(laneIdx => Instr.VI16x8ExtractLane(Signedness.Unsigned, laneIdx))
-              case 27  => laneIdx.asParser.map(laneIdx => Instr.VI32x4ExtractLane(laneIdx))
-              case 29  => laneIdx.asParser.map(laneIdx => Instr.VI64x2ExtractLane(laneIdx))
-              case 31  => laneIdx.asParser.map(laneIdx => Instr.VFExtractLane(FShape.F32x4, laneIdx))
-              case 33  => laneIdx.asParser.map(laneIdx => Instr.VFExtractLane(FShape.F64x2, laneIdx))
-              case 23  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I8x16, laneIdx))
-              case 26  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I16x8, laneIdx))
-              case 28  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I32x4, laneIdx))
-              case 30  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I64x2, laneIdx))
-              case 32  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(FShape.F32x4, laneIdx))
-              case 34  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(FShape.F64x2, laneIdx))
-              case 35  => Parser.succeed(Instr.VIEq(IShape.I8x16))
-              case 45  => Parser.succeed(Instr.VIEq(IShape.I16x8))
-              case 55  => Parser.succeed(Instr.VIEq(IShape.I32x4))
-              case 214 => Parser.succeed(Instr.VIEq(IShape.I64x2))
-              case 36  => Parser.succeed(Instr.VINe(IShape.I8x16))
-              case 46  => Parser.succeed(Instr.VINe(IShape.I16x8))
-              case 56  => Parser.succeed(Instr.VINe(IShape.I32x4))
-              case 215 => Parser.succeed(Instr.VINe(IShape.I64x2))
-              case 37  => Parser.succeed(Instr.VILt(IShape.I8x16, Signedness.Signed))
-              case 38  => Parser.succeed(Instr.VILt(IShape.I8x16, Signedness.Unsigned))
-              case 47  => Parser.succeed(Instr.VILt(IShape.I16x8, Signedness.Signed))
-              case 48  => Parser.succeed(Instr.VILt(IShape.I16x8, Signedness.Unsigned))
-              case 57  => Parser.succeed(Instr.VILt(IShape.I32x4, Signedness.Signed))
-              case 58  => Parser.succeed(Instr.VILt(IShape.I32x4, Signedness.Unsigned))
-              case 39  => Parser.succeed(Instr.VIGt(IShape.I8x16, Signedness.Signed))
-              case 40  => Parser.succeed(Instr.VIGt(IShape.I8x16, Signedness.Unsigned))
-              case 49  => Parser.succeed(Instr.VIGt(IShape.I16x8, Signedness.Signed))
-              case 50  => Parser.succeed(Instr.VIGt(IShape.I16x8, Signedness.Unsigned))
-              case 59  => Parser.succeed(Instr.VIGt(IShape.I32x4, Signedness.Signed))
-              case 60  => Parser.succeed(Instr.VIGt(IShape.I32x4, Signedness.Unsigned))
-              case 41  => Parser.succeed(Instr.VILe(IShape.I8x16, Signedness.Signed))
-              case 42  => Parser.succeed(Instr.VILe(IShape.I8x16, Signedness.Unsigned))
-              case 51  => Parser.succeed(Instr.VILe(IShape.I16x8, Signedness.Signed))
-              case 52  => Parser.succeed(Instr.VILe(IShape.I16x8, Signedness.Unsigned))
-              case 61  => Parser.succeed(Instr.VILe(IShape.I32x4, Signedness.Signed))
-              case 62  => Parser.succeed(Instr.VILe(IShape.I32x4, Signedness.Unsigned))
-              case 43  => Parser.succeed(Instr.VIGe(IShape.I8x16, Signedness.Signed))
-              case 44  => Parser.succeed(Instr.VIGe(IShape.I8x16, Signedness.Unsigned))
-              case 53  => Parser.succeed(Instr.VIGe(IShape.I16x8, Signedness.Signed))
-              case 54  => Parser.succeed(Instr.VIGe(IShape.I16x8, Signedness.Unsigned))
-              case 63  => Parser.succeed(Instr.VIGe(IShape.I32x4, Signedness.Signed))
-              case 64  => Parser.succeed(Instr.VIGe(IShape.I32x4, Signedness.Unsigned))
-              case 216 => Parser.succeed(Instr.VI64x2Lt)
-              case 217 => Parser.succeed(Instr.VI64x2Gt)
-              case 218 => Parser.succeed(Instr.VI64x2Le)
-              case 219 => Parser.succeed(Instr.VI64x2Ge)
-              case 65  => Parser.succeed(Instr.VFEq(FShape.F32x4))
-              case 71  => Parser.succeed(Instr.VFEq(FShape.F64x2))
-              case 66  => Parser.succeed(Instr.VFNe(FShape.F32x4))
-              case 72  => Parser.succeed(Instr.VFNe(FShape.F64x2))
-              case 67  => Parser.succeed(Instr.VFLt(FShape.F32x4))
-              case 73  => Parser.succeed(Instr.VFLt(FShape.F64x2))
-              case 68  => Parser.succeed(Instr.VFGt(FShape.F32x4))
-              case 74  => Parser.succeed(Instr.VFGt(FShape.F64x2))
-              case 69  => Parser.succeed(Instr.VFLe(FShape.F32x4))
-              case 75  => Parser.succeed(Instr.VFLe(FShape.F64x2))
-              case 70  => Parser.succeed(Instr.VFGe(FShape.F32x4))
-              case 76  => Parser.succeed(Instr.VFGe(FShape.F64x2))
-              case 96  => Parser.succeed(Instr.VIAbs(IShape.I8x16))
-              case 128 => Parser.succeed(Instr.VIAbs(IShape.I16x8))
-              case 160 => Parser.succeed(Instr.VIAbs(IShape.I32x4))
-              case 192 => Parser.succeed(Instr.VIAbs(IShape.I64x2))
-              case 97  => Parser.succeed(Instr.VINeg(IShape.I8x16))
-              case 129 => Parser.succeed(Instr.VINeg(IShape.I16x8))
-              case 161 => Parser.succeed(Instr.VINeg(IShape.I32x4))
-              case 193 => Parser.succeed(Instr.VINeg(IShape.I64x2))
-              case 98  => Parser.succeed(Instr.VI8x16PopCnt)
-              case 130 => Parser.succeed(Instr.VI16x8Q15MulrSat)
-              case 186 => Parser.succeed(Instr.VI32x4DotI16x8)
-              case 224 => Parser.succeed(Instr.VFAbs(FShape.F32x4))
-              case 236 => Parser.succeed(Instr.VFAbs(FShape.F64x2))
-              case 225 => Parser.succeed(Instr.VFNeg(FShape.F32x4))
-              case 237 => Parser.succeed(Instr.VFNeg(FShape.F64x2))
-              case 227 => Parser.succeed(Instr.VFSqrt(FShape.F32x4))
-              case 239 => Parser.succeed(Instr.VFSqrt(FShape.F64x2))
-              case 103 => Parser.succeed(Instr.VFCeil(FShape.F32x4))
-              case 116 => Parser.succeed(Instr.VFCeil(FShape.F64x2))
-              case 104 => Parser.succeed(Instr.VFFloor(FShape.F32x4))
-              case 117 => Parser.succeed(Instr.VFFloor(FShape.F64x2))
-              case 105 => Parser.succeed(Instr.VFTrunc(FShape.F32x4))
-              case 122 => Parser.succeed(Instr.VFTrunc(FShape.F64x2))
-              case 106 => Parser.succeed(Instr.VFNearest(FShape.F32x4))
-              case 148 => Parser.succeed(Instr.VFNearest(FShape.F64x2))
-              case 99  => Parser.succeed(Instr.VIAllTrue(IShape.I8x16))
-              case 131 => Parser.succeed(Instr.VIAllTrue(IShape.I16x8))
-              case 163 => Parser.succeed(Instr.VIAllTrue(IShape.I32x4))
-              case 195 => Parser.succeed(Instr.VIAllTrue(IShape.I64x2))
-              case 100 => Parser.succeed(Instr.VIBitMask(IShape.I8x16))
-              case 132 => Parser.succeed(Instr.VIBitMask(IShape.I16x8))
-              case 164 => Parser.succeed(Instr.VIBitMask(IShape.I32x4))
-              case 196 => Parser.succeed(Instr.VIBitMask(IShape.I64x2))
-              case 101 => Parser.succeed(Instr.VI8x16NarrowI16x8(Signedness.Signed))
-              case 102 => Parser.succeed(Instr.VI8x16NarrowI16x8(Signedness.Unsigned))
-              case 133 => Parser.succeed(Instr.VI16x8NarrowI32x4(Signedness.Signed))
-              case 134 => Parser.succeed(Instr.VI16x8NarrowI32x4(Signedness.Unsigned))
-              case 135 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.Low, Signedness.Signed))
-              case 136 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.High, Signedness.Signed))
-              case 137 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.Low, Signedness.Unsigned))
-              case 138 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.High, Signedness.Unsigned))
-              case 167 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Signed))
-              case 168 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.High, Signedness.Signed))
-              case 169 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Unsigned))
-              case 170 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.High, Signedness.Unsigned))
-              case 199 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Signed))
-              case 200 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.High, Signedness.Signed))
-              case 201 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Unsigned))
-              case 202 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.High, Signedness.Unsigned))
-              case 107 => Parser.succeed(Instr.VIShl(IShape.I8x16))
-              case 139 => Parser.succeed(Instr.VIShl(IShape.I16x8))
-              case 171 => Parser.succeed(Instr.VIShl(IShape.I32x4))
-              case 203 => Parser.succeed(Instr.VIShl(IShape.I64x2))
-              case 108 => Parser.succeed(Instr.VIShr(IShape.I8x16, Signedness.Signed))
-              case 109 => Parser.succeed(Instr.VIShr(IShape.I8x16, Signedness.Unsigned))
-              case 140 => Parser.succeed(Instr.VIShr(IShape.I16x8, Signedness.Signed))
-              case 141 => Parser.succeed(Instr.VIShr(IShape.I16x8, Signedness.Unsigned))
-              case 172 => Parser.succeed(Instr.VIShr(IShape.I32x4, Signedness.Signed))
-              case 173 => Parser.succeed(Instr.VIShr(IShape.I32x4, Signedness.Unsigned))
-              case 204 => Parser.succeed(Instr.VIShr(IShape.I64x2, Signedness.Signed))
-              case 205 => Parser.succeed(Instr.VIShr(IShape.I64x2, Signedness.Unsigned))
-              case 110 => Parser.succeed(Instr.VIAdd(IShape.I8x16))
-              case 142 => Parser.succeed(Instr.VIAdd(IShape.I16x8))
-              case 174 => Parser.succeed(Instr.VIAdd(IShape.I32x4))
-              case 206 => Parser.succeed(Instr.VIAdd(IShape.I64x2))
-              case 113 => Parser.succeed(Instr.VISub(IShape.I8x16))
-              case 145 => Parser.succeed(Instr.VISub(IShape.I16x8))
-              case 177 => Parser.succeed(Instr.VISub(IShape.I32x4))
-              case 209 => Parser.succeed(Instr.VISub(IShape.I64x2))
-              case 118 => Parser.succeed(Instr.VIMin(IShape.I8x16, Signedness.Signed))
-              case 119 => Parser.succeed(Instr.VIMin(IShape.I8x16, Signedness.Unsigned))
-              case 150 => Parser.succeed(Instr.VIMin(IShape.I16x8, Signedness.Signed))
-              case 151 => Parser.succeed(Instr.VIMin(IShape.I16x8, Signedness.Unsigned))
-              case 182 => Parser.succeed(Instr.VIMin(IShape.I32x4, Signedness.Signed))
-              case 183 => Parser.succeed(Instr.VIMin(IShape.I32x4, Signedness.Unsigned))
-              case 120 => Parser.succeed(Instr.VIMax(IShape.I8x16, Signedness.Signed))
-              case 121 => Parser.succeed(Instr.VIMax(IShape.I8x16, Signedness.Unsigned))
-              case 152 => Parser.succeed(Instr.VIMax(IShape.I16x8, Signedness.Signed))
-              case 153 => Parser.succeed(Instr.VIMax(IShape.I16x8, Signedness.Unsigned))
-              case 184 => Parser.succeed(Instr.VIMax(IShape.I32x4, Signedness.Signed))
-              case 185 => Parser.succeed(Instr.VIMax(IShape.I32x4, Signedness.Unsigned))
-              case 111 => Parser.succeed(Instr.VIAddSat(IShape.I8x16, Signedness.Signed))
-              case 112 => Parser.succeed(Instr.VIAddSat(IShape.I8x16, Signedness.Unsigned))
-              case 143 => Parser.succeed(Instr.VIAddSat(IShape.I16x8, Signedness.Signed))
-              case 144 => Parser.succeed(Instr.VIAddSat(IShape.I16x8, Signedness.Unsigned))
-              case 114 => Parser.succeed(Instr.VISubSat(IShape.I8x16, Signedness.Signed))
-              case 115 => Parser.succeed(Instr.VISubSat(IShape.I8x16, Signedness.Unsigned))
-              case 146 => Parser.succeed(Instr.VISubSat(IShape.I16x8, Signedness.Signed))
-              case 147 => Parser.succeed(Instr.VISubSat(IShape.I16x8, Signedness.Unsigned))
-              case 149 => Parser.succeed(Instr.VIMul(IShape.I16x8))
-              case 181 => Parser.succeed(Instr.VIMul(IShape.I32x4))
-              case 213 => Parser.succeed(Instr.VIMul(IShape.I64x2))
-              case 123 => Parser.succeed(Instr.VIAvgr(IShape.I8x16))
-              case 155 => Parser.succeed(Instr.VIAvgr(IShape.I16x8))
-              case 156 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Signed))
-              case 157 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Signed))
-              case 158 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Unsigned))
-              case 159 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Unsigned))
-              case 188 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Signed))
-              case 189 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Signed))
-              case 190 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Unsigned))
-              case 191 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Unsigned))
-              case 220 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Signed))
-              case 221 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Signed))
-              case 222 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Unsigned))
-              case 223 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Unsigned))
-              case 124 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Signed))
-              case 125 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Unsigned))
-              case 126 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I32x4, Signedness.Signed))
-              case 127 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I32x4, Signedness.Unsigned))
-              case 228 => Parser.succeed(Instr.VFAdd(FShape.F32x4))
-              case 240 => Parser.succeed(Instr.VFAdd(FShape.F64x2))
-              case 229 => Parser.succeed(Instr.VFSub(FShape.F32x4))
-              case 241 => Parser.succeed(Instr.VFSub(FShape.F64x2))
-              case 230 => Parser.succeed(Instr.VFMul(FShape.F32x4))
-              case 242 => Parser.succeed(Instr.VFMul(FShape.F64x2))
-              case 231 => Parser.succeed(Instr.VFDiv(FShape.F32x4))
-              case 243 => Parser.succeed(Instr.VFDiv(FShape.F64x2))
-              case 232 => Parser.succeed(Instr.VFMin(FShape.F32x4))
-              case 244 => Parser.succeed(Instr.VFMin(FShape.F64x2))
-              case 233 => Parser.succeed(Instr.VFMax(FShape.F32x4))
-              case 245 => Parser.succeed(Instr.VFMax(FShape.F64x2))
-              case 234 => Parser.succeed(Instr.VFPMin(FShape.F32x4))
-              case 246 => Parser.succeed(Instr.VFPMin(FShape.F64x2))
-              case 235 => Parser.succeed(Instr.VFPMax(FShape.F32x4))
-              case 247 => Parser.succeed(Instr.VFPMax(FShape.F64x2))
-              case 248 => Parser.succeed(Instr.VI32x4TruncSatF32x4(Signedness.Signed))
-              case 249 => Parser.succeed(Instr.VI32x4TruncSatF32x4(Signedness.Unsigned))
-              case 252 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Signed))
-              case 253 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Unsigned))
-              case 250 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Signed))
-              case 251 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Unsigned))
-              case 94  => Parser.succeed(Instr.VF32x4DemoteF64x2Zero)
-              case 254 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Signed))
-              case 255 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Unsigned))
-              case 95  => Parser.succeed(Instr.VF64x2PromoteLowI32x4)
-              case 0   => Binary.memArg.asParser.map(memArg => Instr.Load(VecType.V128, memArg))
-              case 11  => Binary.memArg.asParser.map(memArg => Instr.Store(VecType.V128, memArg))
-              case 1   => Binary.memArg.asParser.map(memArg => Instr.V128Load8x8(Signedness.Signed, memArg))
-              case 2   => Binary.memArg.asParser.map(memArg => Instr.V128Load8x8(Signedness.Unsigned, memArg))
-              case 3   => Binary.memArg.asParser.map(memArg => Instr.V128Load16x4(Signedness.Signed, memArg))
-              case 4   => Binary.memArg.asParser.map(memArg => Instr.V128Load16x4(Signedness.Unsigned, memArg))
-              case 5   => Binary.memArg.asParser.map(memArg => Instr.V128Load32x2(Signedness.Signed, memArg))
-              case 6   => Binary.memArg.asParser.map(memArg => Instr.V128Load32x2(Signedness.Unsigned, memArg))
-              case 92  => Binary.memArg.asParser.map(memArg => Instr.V128Load32Zero(memArg))
-              case 93  => Binary.memArg.asParser.map(memArg => Instr.V128Load64Zero(memArg))
-              case 7   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW8, memArg))
-              case 8   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW16, memArg))
-              case 9   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW32, memArg))
-              case 10  => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW64, memArg))
-              case 84  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128LoadLane(VectorLoadShape.WW8, memArg, laneIdx)
-                }
-              case 85  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128LoadLane(VectorLoadShape.WW16, memArg, laneIdx)
-                }
-              case 86  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128LoadLane(VectorLoadShape.WW32, memArg, laneIdx)
-                }
-              case 87  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128LoadLane(VectorLoadShape.WW64, memArg, laneIdx)
-                }
-              case 88  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128StoreLane(VectorLoadShape.WW8, memArg, laneIdx)
-                }
-              case 89  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128StoreLane(VectorLoadShape.WW16, memArg, laneIdx)
-                }
-              case 90  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128StoreLane(VectorLoadShape.WW32, memArg, laneIdx)
-                }
-              case 91  =>
-                (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
-                  Instr.V128StoreLane(VectorLoadShape.WW64, memArg, laneIdx)
-                }
+      anyByte.asParser.map(_.toInt & 0xff).flatMap {
+        case 0x41 => i32.asParser.map(Instr.I32Const.apply)
+        case 0x42 => i64.asParser.map(Instr.I64Const.apply)
+        case 0x43 => f32.asParser.map(Instr.F32Const.apply)
+        case 0x44 => f64.asParser.map(Instr.F64Const.apply)
+        case 0x45 => Parser.succeed(Instr.IEqz(IntWidth.I32))
+        case 0x50 => Parser.succeed(Instr.IEqz(IntWidth.I64))
+        case 0x46 => Parser.succeed(Instr.IEq(IntWidth.I32))
+        case 0x51 => Parser.succeed(Instr.IEq(IntWidth.I64))
+        case 0x47 => Parser.succeed(Instr.INe(IntWidth.I32))
+        case 0x52 => Parser.succeed(Instr.INe(IntWidth.I64))
+        case 0x48 => Parser.succeed(Instr.ILt(IntWidth.I32, Signedness.Signed))
+        case 0x49 => Parser.succeed(Instr.ILt(IntWidth.I32, Signedness.Unsigned))
+        case 0x53 => Parser.succeed(Instr.ILt(IntWidth.I64, Signedness.Signed))
+        case 0x54 => Parser.succeed(Instr.ILt(IntWidth.I64, Signedness.Unsigned))
+        case 0x4a => Parser.succeed(Instr.IGt(IntWidth.I32, Signedness.Signed))
+        case 0x4b => Parser.succeed(Instr.IGt(IntWidth.I32, Signedness.Unsigned))
+        case 0x55 => Parser.succeed(Instr.IGt(IntWidth.I64, Signedness.Signed))
+        case 0x56 => Parser.succeed(Instr.IGt(IntWidth.I64, Signedness.Unsigned))
+        case 0x4c => Parser.succeed(Instr.ILe(IntWidth.I32, Signedness.Signed))
+        case 0x4d => Parser.succeed(Instr.ILe(IntWidth.I32, Signedness.Unsigned))
+        case 0x57 => Parser.succeed(Instr.ILe(IntWidth.I64, Signedness.Signed))
+        case 0x58 => Parser.succeed(Instr.ILe(IntWidth.I64, Signedness.Unsigned))
+        case 0x4e => Parser.succeed(Instr.IGe(IntWidth.I32, Signedness.Signed))
+        case 0x4f => Parser.succeed(Instr.IGe(IntWidth.I32, Signedness.Unsigned))
+        case 0x59 => Parser.succeed(Instr.IGe(IntWidth.I64, Signedness.Signed))
+        case 0x5a => Parser.succeed(Instr.IGe(IntWidth.I64, Signedness.Unsigned))
+        case 0x5b => Parser.succeed(Instr.FEq(FloatWidth.F32))
+        case 0x61 => Parser.succeed(Instr.FEq(FloatWidth.F64))
+        case 0x5c => Parser.succeed(Instr.FNe(FloatWidth.F32))
+        case 0x62 => Parser.succeed(Instr.FNe(FloatWidth.F64))
+        case 0x5d => Parser.succeed(Instr.FLt(FloatWidth.F32))
+        case 0x63 => Parser.succeed(Instr.FLt(FloatWidth.F64))
+        case 0x5e => Parser.succeed(Instr.FGt(FloatWidth.F32))
+        case 0x64 => Parser.succeed(Instr.FGt(FloatWidth.F64))
+        case 0x5f => Parser.succeed(Instr.FLe(FloatWidth.F32))
+        case 0x65 => Parser.succeed(Instr.FLe(FloatWidth.F64))
+        case 0x60 => Parser.succeed(Instr.FGe(FloatWidth.F32))
+        case 0x66 => Parser.succeed(Instr.FGe(FloatWidth.F64))
+        case 0x67 => Parser.succeed(Instr.IClz(IntWidth.I32))
+        case 0x79 => Parser.succeed(Instr.IClz(IntWidth.I64))
+        case 0x68 => Parser.succeed(Instr.ICtz(IntWidth.I32))
+        case 0x7a => Parser.succeed(Instr.ICtz(IntWidth.I64))
+        case 0x69 => Parser.succeed(Instr.IPopCnt(IntWidth.I32))
+        case 0x7b => Parser.succeed(Instr.IPopCnt(IntWidth.I64))
+        case 0x6a => Parser.succeed(Instr.IAdd(IntWidth.I32))
+        case 0x7c => Parser.succeed(Instr.IAdd(IntWidth.I64))
+        case 0x6b => Parser.succeed(Instr.ISub(IntWidth.I32))
+        case 0x7d => Parser.succeed(Instr.ISub(IntWidth.I64))
+        case 0x6c => Parser.succeed(Instr.IMul(IntWidth.I32))
+        case 0x7e => Parser.succeed(Instr.IMul(IntWidth.I64))
+        case 0x6d => Parser.succeed(Instr.IDiv(IntWidth.I32, Signedness.Signed))
+        case 0x6e => Parser.succeed(Instr.IDiv(IntWidth.I32, Signedness.Unsigned))
+        case 0x7f => Parser.succeed(Instr.IDiv(IntWidth.I64, Signedness.Signed))
+        case 0x80 => Parser.succeed(Instr.IDiv(IntWidth.I64, Signedness.Unsigned))
+        case 0x6f => Parser.succeed(Instr.IRem(IntWidth.I32, Signedness.Signed))
+        case 0x70 => Parser.succeed(Instr.IRem(IntWidth.I32, Signedness.Unsigned))
+        case 0x81 => Parser.succeed(Instr.IRem(IntWidth.I64, Signedness.Signed))
+        case 0x82 => Parser.succeed(Instr.IRem(IntWidth.I64, Signedness.Unsigned))
+        case 0x71 => Parser.succeed(Instr.IAnd(IntWidth.I32))
+        case 0x83 => Parser.succeed(Instr.IAnd(IntWidth.I64))
+        case 0x72 => Parser.succeed(Instr.IOr(IntWidth.I32))
+        case 0x84 => Parser.succeed(Instr.IOr(IntWidth.I64))
+        case 0x73 => Parser.succeed(Instr.IXor(IntWidth.I32))
+        case 0x85 => Parser.succeed(Instr.IXor(IntWidth.I64))
+        case 0x74 => Parser.succeed(Instr.IShl(IntWidth.I32))
+        case 0x86 => Parser.succeed(Instr.IShl(IntWidth.I64))
+        case 0x75 => Parser.succeed(Instr.IShr(IntWidth.I32, Signedness.Signed))
+        case 0x76 => Parser.succeed(Instr.IShr(IntWidth.I32, Signedness.Unsigned))
+        case 0x87 => Parser.succeed(Instr.IShr(IntWidth.I64, Signedness.Signed))
+        case 0x88 => Parser.succeed(Instr.IShr(IntWidth.I64, Signedness.Unsigned))
+        case 0x77 => Parser.succeed(Instr.IRotL(IntWidth.I32))
+        case 0x89 => Parser.succeed(Instr.IRotL(IntWidth.I64))
+        case 0x78 => Parser.succeed(Instr.IRotR(IntWidth.I32))
+        case 0x8a => Parser.succeed(Instr.IRotR(IntWidth.I64))
+        case 0x8b => Parser.succeed(Instr.FAbs(FloatWidth.F32))
+        case 0x99 => Parser.succeed(Instr.FAbs(FloatWidth.F64))
+        case 0x8c => Parser.succeed(Instr.FNeg(FloatWidth.F32))
+        case 0x9a => Parser.succeed(Instr.FNeg(FloatWidth.F64))
+        case 0x8d => Parser.succeed(Instr.FCeil(FloatWidth.F32))
+        case 0x9b => Parser.succeed(Instr.FCeil(FloatWidth.F64))
+        case 0x8e => Parser.succeed(Instr.FFloor(FloatWidth.F32))
+        case 0x9c => Parser.succeed(Instr.FFloor(FloatWidth.F64))
+        case 0x8f => Parser.succeed(Instr.FTrunc(FloatWidth.F32))
+        case 0x9d => Parser.succeed(Instr.FTrunc(FloatWidth.F64))
+        case 0x90 => Parser.succeed(Instr.FNearest(FloatWidth.F32))
+        case 0x9e => Parser.succeed(Instr.FNearest(FloatWidth.F64))
+        case 0x91 => Parser.succeed(Instr.FSqrt(FloatWidth.F32))
+        case 0x9f => Parser.succeed(Instr.FSqrt(FloatWidth.F64))
+        case 0x92 => Parser.succeed(Instr.FAdd(FloatWidth.F32))
+        case 0xa0 => Parser.succeed(Instr.FAdd(FloatWidth.F64))
+        case 0x93 => Parser.succeed(Instr.FSub(FloatWidth.F32))
+        case 0xa1 => Parser.succeed(Instr.FSub(FloatWidth.F64))
+        case 0x94 => Parser.succeed(Instr.FMul(FloatWidth.F32))
+        case 0xa2 => Parser.succeed(Instr.FMul(FloatWidth.F64))
+        case 0x95 => Parser.succeed(Instr.FDiv(FloatWidth.F32))
+        case 0xa3 => Parser.succeed(Instr.FDiv(FloatWidth.F64))
+        case 0x96 => Parser.succeed(Instr.FMin(FloatWidth.F32))
+        case 0xa4 => Parser.succeed(Instr.FMin(FloatWidth.F64))
+        case 0x97 => Parser.succeed(Instr.FMax(FloatWidth.F32))
+        case 0xa5 => Parser.succeed(Instr.FMax(FloatWidth.F64))
+        case 0x98 => Parser.succeed(Instr.FCopySign(FloatWidth.F32))
+        case 0xa6 => Parser.succeed(Instr.FCopySign(FloatWidth.F64))
+        case 0xa7 => Parser.succeed(Instr.I32WrapI64)
+        case 0xa8 => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Signed))
+        case 0xa9 => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned))
+        case 0xaa => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Signed))
+        case 0xab => Parser.succeed(Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned))
+        case 0xae => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Signed))
+        case 0xaf => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned))
+        case 0xb0 => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Signed))
+        case 0xb1 => Parser.succeed(Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned))
+        case 0xac => Parser.succeed(Instr.I64ExtendI32(Signedness.Signed))
+        case 0xad => Parser.succeed(Instr.I64ExtendI32(Signedness.Unsigned))
+        case 0xc4 => Parser.succeed(Instr.I64Extend32S)
+        case 0xc0 => Parser.succeed(Instr.IExtend8S(IntWidth.I32))
+        case 0xc2 => Parser.succeed(Instr.IExtend8S(IntWidth.I64))
+        case 0xc1 => Parser.succeed(Instr.IExtend16S(IntWidth.I32))
+        case 0xc3 => Parser.succeed(Instr.IExtend16S(IntWidth.I64))
+        case 0xb2 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Signed))
+        case 0xb3 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Unsigned))
+        case 0xb4 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Signed))
+        case 0xb5 => Parser.succeed(Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Unsigned))
+        case 0xb7 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Signed))
+        case 0xb8 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Unsigned))
+        case 0xb9 => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Signed))
+        case 0xba => Parser.succeed(Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Unsigned))
+        case 0xb6 => Parser.succeed(Instr.F32DemoteF64)
+        case 0xbb => Parser.succeed(Instr.F64PromoteF32)
+        case 0xbc => Parser.succeed(Instr.IReinterpretF(IntWidth.I32))
+        case 0xbd => Parser.succeed(Instr.IReinterpretF(IntWidth.I64))
+        case 0xbe => Parser.succeed(Instr.FReinterpretI(FloatWidth.F32))
+        case 0xbf => Parser.succeed(Instr.FReinterpretI(FloatWidth.F64))
+        case 0xfc =>
+          u32.asParser.flatMap {
+            case 0          => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Signed))
+            case 1          => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned))
+            case 2          => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Signed))
+            case 3          => Parser.succeed(Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned))
+            case 4          => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Signed))
+            case 5          => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned))
+            case 6          => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Signed))
+            case 7          => Parser.succeed(Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned))
+            case 16         => Binary.tableIdx.asParser.to[Instr.TableSize]
+            case 15         => Binary.tableIdx.asParser.to[Instr.TableGrow]
+            case 17         => Binary.tableIdx.asParser.to[Instr.TableFill]
+            case 14         => (Binary.tableIdx ~ Binary.tableIdx).asParser.to[Instr.TableCopy]
+            case 12         => (Binary.tableIdx ~ Binary.elemIdx).asParser.to[Instr.TableInit]
+            case 13         => Binary.elemIdx.asParser.to[Instr.ElemDrop]
+            case 11         => specificByte(0x00).asParser.as(Instr.MemoryFill)
+            case 10         => (specificByte(0x00) ~ specificByte(0x00)).asParser.as(Instr.MemoryCopy)
+            case 8          => (Binary.dataIdx <~ specificByte(0x00).unit(0x00)).asParser.to[Instr.MemoryInit]
+            case 9          => Binary.dataIdx.asParser.to[Instr.DataDrop]
+            case other: Int => Parser.fail(SyntaxError.InvalidOpcode(Some(0xfc.toByte), other))
+          }
+        case 0xfd =>
+          u32.asParser.flatMap {
+            case 12  => i128.asParser.map(Instr.V128Const.apply)
+            case 77  => Parser.succeed(Instr.V128Not)
+            case 78  => Parser.succeed(Instr.V128And)
+            case 79  => Parser.succeed(Instr.V128AndNot)
+            case 80  => Parser.succeed(Instr.V128Or)
+            case 81  => Parser.succeed(Instr.V128XOr)
+            case 82  => Parser.succeed(Instr.V128BitSelect)
+            case 83  => Parser.succeed(Instr.V128AnyTrue)
+            case 13  =>
+              (laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser ~ laneIdx.asParser)
+                .to[Instr.VI8x16Shuffle]
+            case 14  => Parser.succeed(Instr.VI18x16Swizzle)
+            case 15  => Parser.succeed(Instr.VSplat(IShape.I8x16))
+            case 16  => Parser.succeed(Instr.VSplat(IShape.I16x8))
+            case 17  => Parser.succeed(Instr.VSplat(IShape.I32x4))
+            case 18  => Parser.succeed(Instr.VSplat(IShape.I64x2))
+            case 19  => Parser.succeed(Instr.VSplat(FShape.F32x4))
+            case 20  => Parser.succeed(Instr.VSplat(FShape.F64x2))
+            case 21  => laneIdx.asParser.map(laneIdx => Instr.VI8x16ExtractLane(Signedness.Signed, laneIdx))
+            case 22  => laneIdx.asParser.map(laneIdx => Instr.VI8x16ExtractLane(Signedness.Unsigned, laneIdx))
+            case 24  => laneIdx.asParser.map(laneIdx => Instr.VI16x8ExtractLane(Signedness.Signed, laneIdx))
+            case 25  => laneIdx.asParser.map(laneIdx => Instr.VI16x8ExtractLane(Signedness.Unsigned, laneIdx))
+            case 27  => laneIdx.asParser.map(laneIdx => Instr.VI32x4ExtractLane(laneIdx))
+            case 29  => laneIdx.asParser.map(laneIdx => Instr.VI64x2ExtractLane(laneIdx))
+            case 31  => laneIdx.asParser.map(laneIdx => Instr.VFExtractLane(FShape.F32x4, laneIdx))
+            case 33  => laneIdx.asParser.map(laneIdx => Instr.VFExtractLane(FShape.F64x2, laneIdx))
+            case 23  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I8x16, laneIdx))
+            case 26  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I16x8, laneIdx))
+            case 28  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I32x4, laneIdx))
+            case 30  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(IShape.I64x2, laneIdx))
+            case 32  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(FShape.F32x4, laneIdx))
+            case 34  => laneIdx.asParser.map(laneIdx => Instr.VReplaceLane(FShape.F64x2, laneIdx))
+            case 35  => Parser.succeed(Instr.VIEq(IShape.I8x16))
+            case 45  => Parser.succeed(Instr.VIEq(IShape.I16x8))
+            case 55  => Parser.succeed(Instr.VIEq(IShape.I32x4))
+            case 214 => Parser.succeed(Instr.VIEq(IShape.I64x2))
+            case 36  => Parser.succeed(Instr.VINe(IShape.I8x16))
+            case 46  => Parser.succeed(Instr.VINe(IShape.I16x8))
+            case 56  => Parser.succeed(Instr.VINe(IShape.I32x4))
+            case 215 => Parser.succeed(Instr.VINe(IShape.I64x2))
+            case 37  => Parser.succeed(Instr.VILt(IShape.I8x16, Signedness.Signed))
+            case 38  => Parser.succeed(Instr.VILt(IShape.I8x16, Signedness.Unsigned))
+            case 47  => Parser.succeed(Instr.VILt(IShape.I16x8, Signedness.Signed))
+            case 48  => Parser.succeed(Instr.VILt(IShape.I16x8, Signedness.Unsigned))
+            case 57  => Parser.succeed(Instr.VILt(IShape.I32x4, Signedness.Signed))
+            case 58  => Parser.succeed(Instr.VILt(IShape.I32x4, Signedness.Unsigned))
+            case 39  => Parser.succeed(Instr.VIGt(IShape.I8x16, Signedness.Signed))
+            case 40  => Parser.succeed(Instr.VIGt(IShape.I8x16, Signedness.Unsigned))
+            case 49  => Parser.succeed(Instr.VIGt(IShape.I16x8, Signedness.Signed))
+            case 50  => Parser.succeed(Instr.VIGt(IShape.I16x8, Signedness.Unsigned))
+            case 59  => Parser.succeed(Instr.VIGt(IShape.I32x4, Signedness.Signed))
+            case 60  => Parser.succeed(Instr.VIGt(IShape.I32x4, Signedness.Unsigned))
+            case 41  => Parser.succeed(Instr.VILe(IShape.I8x16, Signedness.Signed))
+            case 42  => Parser.succeed(Instr.VILe(IShape.I8x16, Signedness.Unsigned))
+            case 51  => Parser.succeed(Instr.VILe(IShape.I16x8, Signedness.Signed))
+            case 52  => Parser.succeed(Instr.VILe(IShape.I16x8, Signedness.Unsigned))
+            case 61  => Parser.succeed(Instr.VILe(IShape.I32x4, Signedness.Signed))
+            case 62  => Parser.succeed(Instr.VILe(IShape.I32x4, Signedness.Unsigned))
+            case 43  => Parser.succeed(Instr.VIGe(IShape.I8x16, Signedness.Signed))
+            case 44  => Parser.succeed(Instr.VIGe(IShape.I8x16, Signedness.Unsigned))
+            case 53  => Parser.succeed(Instr.VIGe(IShape.I16x8, Signedness.Signed))
+            case 54  => Parser.succeed(Instr.VIGe(IShape.I16x8, Signedness.Unsigned))
+            case 63  => Parser.succeed(Instr.VIGe(IShape.I32x4, Signedness.Signed))
+            case 64  => Parser.succeed(Instr.VIGe(IShape.I32x4, Signedness.Unsigned))
+            case 216 => Parser.succeed(Instr.VI64x2Lt)
+            case 217 => Parser.succeed(Instr.VI64x2Gt)
+            case 218 => Parser.succeed(Instr.VI64x2Le)
+            case 219 => Parser.succeed(Instr.VI64x2Ge)
+            case 65  => Parser.succeed(Instr.VFEq(FShape.F32x4))
+            case 71  => Parser.succeed(Instr.VFEq(FShape.F64x2))
+            case 66  => Parser.succeed(Instr.VFNe(FShape.F32x4))
+            case 72  => Parser.succeed(Instr.VFNe(FShape.F64x2))
+            case 67  => Parser.succeed(Instr.VFLt(FShape.F32x4))
+            case 73  => Parser.succeed(Instr.VFLt(FShape.F64x2))
+            case 68  => Parser.succeed(Instr.VFGt(FShape.F32x4))
+            case 74  => Parser.succeed(Instr.VFGt(FShape.F64x2))
+            case 69  => Parser.succeed(Instr.VFLe(FShape.F32x4))
+            case 75  => Parser.succeed(Instr.VFLe(FShape.F64x2))
+            case 70  => Parser.succeed(Instr.VFGe(FShape.F32x4))
+            case 76  => Parser.succeed(Instr.VFGe(FShape.F64x2))
+            case 96  => Parser.succeed(Instr.VIAbs(IShape.I8x16))
+            case 128 => Parser.succeed(Instr.VIAbs(IShape.I16x8))
+            case 160 => Parser.succeed(Instr.VIAbs(IShape.I32x4))
+            case 192 => Parser.succeed(Instr.VIAbs(IShape.I64x2))
+            case 97  => Parser.succeed(Instr.VINeg(IShape.I8x16))
+            case 129 => Parser.succeed(Instr.VINeg(IShape.I16x8))
+            case 161 => Parser.succeed(Instr.VINeg(IShape.I32x4))
+            case 193 => Parser.succeed(Instr.VINeg(IShape.I64x2))
+            case 98  => Parser.succeed(Instr.VI8x16PopCnt)
+            case 130 => Parser.succeed(Instr.VI16x8Q15MulrSat)
+            case 186 => Parser.succeed(Instr.VI32x4DotI16x8)
+            case 224 => Parser.succeed(Instr.VFAbs(FShape.F32x4))
+            case 236 => Parser.succeed(Instr.VFAbs(FShape.F64x2))
+            case 225 => Parser.succeed(Instr.VFNeg(FShape.F32x4))
+            case 237 => Parser.succeed(Instr.VFNeg(FShape.F64x2))
+            case 227 => Parser.succeed(Instr.VFSqrt(FShape.F32x4))
+            case 239 => Parser.succeed(Instr.VFSqrt(FShape.F64x2))
+            case 103 => Parser.succeed(Instr.VFCeil(FShape.F32x4))
+            case 116 => Parser.succeed(Instr.VFCeil(FShape.F64x2))
+            case 104 => Parser.succeed(Instr.VFFloor(FShape.F32x4))
+            case 117 => Parser.succeed(Instr.VFFloor(FShape.F64x2))
+            case 105 => Parser.succeed(Instr.VFTrunc(FShape.F32x4))
+            case 122 => Parser.succeed(Instr.VFTrunc(FShape.F64x2))
+            case 106 => Parser.succeed(Instr.VFNearest(FShape.F32x4))
+            case 148 => Parser.succeed(Instr.VFNearest(FShape.F64x2))
+            case 99  => Parser.succeed(Instr.VIAllTrue(IShape.I8x16))
+            case 131 => Parser.succeed(Instr.VIAllTrue(IShape.I16x8))
+            case 163 => Parser.succeed(Instr.VIAllTrue(IShape.I32x4))
+            case 195 => Parser.succeed(Instr.VIAllTrue(IShape.I64x2))
+            case 100 => Parser.succeed(Instr.VIBitMask(IShape.I8x16))
+            case 132 => Parser.succeed(Instr.VIBitMask(IShape.I16x8))
+            case 164 => Parser.succeed(Instr.VIBitMask(IShape.I32x4))
+            case 196 => Parser.succeed(Instr.VIBitMask(IShape.I64x2))
+            case 101 => Parser.succeed(Instr.VI8x16NarrowI16x8(Signedness.Signed))
+            case 102 => Parser.succeed(Instr.VI8x16NarrowI16x8(Signedness.Unsigned))
+            case 133 => Parser.succeed(Instr.VI16x8NarrowI32x4(Signedness.Signed))
+            case 134 => Parser.succeed(Instr.VI16x8NarrowI32x4(Signedness.Unsigned))
+            case 135 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.Low, Signedness.Signed))
+            case 136 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.High, Signedness.Signed))
+            case 137 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.Low, Signedness.Unsigned))
+            case 138 => Parser.succeed(Instr.VI16x8ExtendI8x16(Half.High, Signedness.Unsigned))
+            case 167 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Signed))
+            case 168 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.High, Signedness.Signed))
+            case 169 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Unsigned))
+            case 170 => Parser.succeed(Instr.VI32x4ExtendI16x8(Half.High, Signedness.Unsigned))
+            case 199 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Signed))
+            case 200 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.High, Signedness.Signed))
+            case 201 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Unsigned))
+            case 202 => Parser.succeed(Instr.VI64x2ExtendI32x4(Half.High, Signedness.Unsigned))
+            case 107 => Parser.succeed(Instr.VIShl(IShape.I8x16))
+            case 139 => Parser.succeed(Instr.VIShl(IShape.I16x8))
+            case 171 => Parser.succeed(Instr.VIShl(IShape.I32x4))
+            case 203 => Parser.succeed(Instr.VIShl(IShape.I64x2))
+            case 108 => Parser.succeed(Instr.VIShr(IShape.I8x16, Signedness.Signed))
+            case 109 => Parser.succeed(Instr.VIShr(IShape.I8x16, Signedness.Unsigned))
+            case 140 => Parser.succeed(Instr.VIShr(IShape.I16x8, Signedness.Signed))
+            case 141 => Parser.succeed(Instr.VIShr(IShape.I16x8, Signedness.Unsigned))
+            case 172 => Parser.succeed(Instr.VIShr(IShape.I32x4, Signedness.Signed))
+            case 173 => Parser.succeed(Instr.VIShr(IShape.I32x4, Signedness.Unsigned))
+            case 204 => Parser.succeed(Instr.VIShr(IShape.I64x2, Signedness.Signed))
+            case 205 => Parser.succeed(Instr.VIShr(IShape.I64x2, Signedness.Unsigned))
+            case 110 => Parser.succeed(Instr.VIAdd(IShape.I8x16))
+            case 142 => Parser.succeed(Instr.VIAdd(IShape.I16x8))
+            case 174 => Parser.succeed(Instr.VIAdd(IShape.I32x4))
+            case 206 => Parser.succeed(Instr.VIAdd(IShape.I64x2))
+            case 113 => Parser.succeed(Instr.VISub(IShape.I8x16))
+            case 145 => Parser.succeed(Instr.VISub(IShape.I16x8))
+            case 177 => Parser.succeed(Instr.VISub(IShape.I32x4))
+            case 209 => Parser.succeed(Instr.VISub(IShape.I64x2))
+            case 118 => Parser.succeed(Instr.VIMin(IShape.I8x16, Signedness.Signed))
+            case 119 => Parser.succeed(Instr.VIMin(IShape.I8x16, Signedness.Unsigned))
+            case 150 => Parser.succeed(Instr.VIMin(IShape.I16x8, Signedness.Signed))
+            case 151 => Parser.succeed(Instr.VIMin(IShape.I16x8, Signedness.Unsigned))
+            case 182 => Parser.succeed(Instr.VIMin(IShape.I32x4, Signedness.Signed))
+            case 183 => Parser.succeed(Instr.VIMin(IShape.I32x4, Signedness.Unsigned))
+            case 120 => Parser.succeed(Instr.VIMax(IShape.I8x16, Signedness.Signed))
+            case 121 => Parser.succeed(Instr.VIMax(IShape.I8x16, Signedness.Unsigned))
+            case 152 => Parser.succeed(Instr.VIMax(IShape.I16x8, Signedness.Signed))
+            case 153 => Parser.succeed(Instr.VIMax(IShape.I16x8, Signedness.Unsigned))
+            case 184 => Parser.succeed(Instr.VIMax(IShape.I32x4, Signedness.Signed))
+            case 185 => Parser.succeed(Instr.VIMax(IShape.I32x4, Signedness.Unsigned))
+            case 111 => Parser.succeed(Instr.VIAddSat(IShape.I8x16, Signedness.Signed))
+            case 112 => Parser.succeed(Instr.VIAddSat(IShape.I8x16, Signedness.Unsigned))
+            case 143 => Parser.succeed(Instr.VIAddSat(IShape.I16x8, Signedness.Signed))
+            case 144 => Parser.succeed(Instr.VIAddSat(IShape.I16x8, Signedness.Unsigned))
+            case 114 => Parser.succeed(Instr.VISubSat(IShape.I8x16, Signedness.Signed))
+            case 115 => Parser.succeed(Instr.VISubSat(IShape.I8x16, Signedness.Unsigned))
+            case 146 => Parser.succeed(Instr.VISubSat(IShape.I16x8, Signedness.Signed))
+            case 147 => Parser.succeed(Instr.VISubSat(IShape.I16x8, Signedness.Unsigned))
+            case 149 => Parser.succeed(Instr.VIMul(IShape.I16x8))
+            case 181 => Parser.succeed(Instr.VIMul(IShape.I32x4))
+            case 213 => Parser.succeed(Instr.VIMul(IShape.I64x2))
+            case 123 => Parser.succeed(Instr.VIAvgr(IShape.I8x16))
+            case 155 => Parser.succeed(Instr.VIAvgr(IShape.I16x8))
+            case 156 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Signed))
+            case 157 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Signed))
+            case 158 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Unsigned))
+            case 159 => Parser.succeed(Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Unsigned))
+            case 188 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Signed))
+            case 189 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Signed))
+            case 190 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Unsigned))
+            case 191 => Parser.succeed(Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Unsigned))
+            case 220 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Signed))
+            case 221 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Signed))
+            case 222 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Unsigned))
+            case 223 => Parser.succeed(Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Unsigned))
+            case 124 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Signed))
+            case 125 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Unsigned))
+            case 126 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I32x4, Signedness.Signed))
+            case 127 => Parser.succeed(Instr.VIExtAddPairwise(IShape.I32x4, Signedness.Unsigned))
+            case 228 => Parser.succeed(Instr.VFAdd(FShape.F32x4))
+            case 240 => Parser.succeed(Instr.VFAdd(FShape.F64x2))
+            case 229 => Parser.succeed(Instr.VFSub(FShape.F32x4))
+            case 241 => Parser.succeed(Instr.VFSub(FShape.F64x2))
+            case 230 => Parser.succeed(Instr.VFMul(FShape.F32x4))
+            case 242 => Parser.succeed(Instr.VFMul(FShape.F64x2))
+            case 231 => Parser.succeed(Instr.VFDiv(FShape.F32x4))
+            case 243 => Parser.succeed(Instr.VFDiv(FShape.F64x2))
+            case 232 => Parser.succeed(Instr.VFMin(FShape.F32x4))
+            case 244 => Parser.succeed(Instr.VFMin(FShape.F64x2))
+            case 233 => Parser.succeed(Instr.VFMax(FShape.F32x4))
+            case 245 => Parser.succeed(Instr.VFMax(FShape.F64x2))
+            case 234 => Parser.succeed(Instr.VFPMin(FShape.F32x4))
+            case 246 => Parser.succeed(Instr.VFPMin(FShape.F64x2))
+            case 235 => Parser.succeed(Instr.VFPMax(FShape.F32x4))
+            case 247 => Parser.succeed(Instr.VFPMax(FShape.F64x2))
+            case 248 => Parser.succeed(Instr.VI32x4TruncSatF32x4(Signedness.Signed))
+            case 249 => Parser.succeed(Instr.VI32x4TruncSatF32x4(Signedness.Unsigned))
+            case 252 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Signed))
+            case 253 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Unsigned))
+            case 250 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Signed))
+            case 251 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Unsigned))
+            case 94  => Parser.succeed(Instr.VF32x4DemoteF64x2Zero)
+            case 254 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Signed))
+            case 255 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Unsigned))
+            case 95  => Parser.succeed(Instr.VF64x2PromoteLowI32x4)
+            case 0   => Binary.memArg.asParser.map(memArg => Instr.Load(VecType.V128, memArg))
+            case 11  => Binary.memArg.asParser.map(memArg => Instr.Store(VecType.V128, memArg))
+            case 1   => Binary.memArg.asParser.map(memArg => Instr.V128Load8x8(Signedness.Signed, memArg))
+            case 2   => Binary.memArg.asParser.map(memArg => Instr.V128Load8x8(Signedness.Unsigned, memArg))
+            case 3   => Binary.memArg.asParser.map(memArg => Instr.V128Load16x4(Signedness.Signed, memArg))
+            case 4   => Binary.memArg.asParser.map(memArg => Instr.V128Load16x4(Signedness.Unsigned, memArg))
+            case 5   => Binary.memArg.asParser.map(memArg => Instr.V128Load32x2(Signedness.Signed, memArg))
+            case 6   => Binary.memArg.asParser.map(memArg => Instr.V128Load32x2(Signedness.Unsigned, memArg))
+            case 92  => Binary.memArg.asParser.map(memArg => Instr.V128Load32Zero(memArg))
+            case 93  => Binary.memArg.asParser.map(memArg => Instr.V128Load64Zero(memArg))
+            case 7   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW8, memArg))
+            case 8   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW16, memArg))
+            case 9   => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW32, memArg))
+            case 10  => Binary.memArg.asParser.map(memArg => Instr.V128LoadSplat(VectorLoadShape.WW64, memArg))
+            case 84  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128LoadLane(VectorLoadShape.WW8, memArg, laneIdx)
+              }
+            case 85  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128LoadLane(VectorLoadShape.WW16, memArg, laneIdx)
+              }
+            case 86  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128LoadLane(VectorLoadShape.WW32, memArg, laneIdx)
+              }
+            case 87  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128LoadLane(VectorLoadShape.WW64, memArg, laneIdx)
+              }
+            case 88  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128StoreLane(VectorLoadShape.WW8, memArg, laneIdx)
+              }
+            case 89  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128StoreLane(VectorLoadShape.WW16, memArg, laneIdx)
+              }
+            case 90  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128StoreLane(VectorLoadShape.WW32, memArg, laneIdx)
+              }
+            case 91  =>
+              (Binary.memArg ~ Binary.laneIdx).asParser.map { case (memArg, laneIdx) =>
+                Instr.V128StoreLane(VectorLoadShape.WW64, memArg, laneIdx)
+              }
 
-              case _ => Parser.fail(SyntaxError.InvalidOpcode)
-            }
-          case 0xd0 => Binary.refType.asParser.to[Instr.RefNull]
-          case 0xd1 => Parser.succeed(Instr.RefIsNull)
-          case 0xd2 => Binary.funcIdx.asParser.to[Instr.RefFunc]
-          case 0x1a => Parser.succeed(Instr.Drop)
-          case 0x1c => vec(Binary.valType).asParser.map(values => Instr.Select(Some(values)))
-          case 0x1b => Parser.succeed(Instr.Select(None))
-          case 0x20 => Binary.localIdx.asParser.to[Instr.LocalGet]
-          case 0x21 => Binary.localIdx.asParser.to[Instr.LocalSet]
-          case 0x22 => Binary.localIdx.asParser.to[Instr.LocalTee]
-          case 0x23 => Binary.globalIdx.asParser.to[Instr.GlobalGet]
-          case 0x24 => Binary.globalIdx.asParser.to[Instr.GlobalSet]
-          case 0x25 => Binary.tableIdx.asParser.to[Instr.TableGet]
-          case 0x26 => Binary.tableIdx.asParser.to[Instr.TableSet]
-          case 0x28 => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.I32, memArg))
-          case 0x29 => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.I64, memArg))
-          case 0x2a => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.F32, memArg))
-          case 0x2b => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.F64, memArg))
-          case 0x36 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.I32, memArg))
-          case 0x37 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.I64, memArg))
-          case 0x38 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.F32, memArg))
-          case 0x39 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.F64, memArg))
-          case 0x2c => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I32, Signedness.Signed, memArg))
-          case 0x2d => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I32, Signedness.Unsigned, memArg))
-          case 0x30 => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I64, Signedness.Signed, memArg))
-          case 0x31 => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I64, Signedness.Unsigned, memArg))
-          case 0x2e => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I32, Signedness.Signed, memArg))
-          case 0x2f => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I32, Signedness.Unsigned, memArg))
-          case 0x32 => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I64, Signedness.Signed, memArg))
-          case 0x33 => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I64, Signedness.Unsigned, memArg))
-          case 0x34 => Binary.memArg.asParser.map(memArg => Instr.Load32(Signedness.Signed, memArg))
-          case 0x35 => Binary.memArg.asParser.map(memArg => Instr.Load32(Signedness.Unsigned, memArg))
-          case 0x3a => Binary.memArg.asParser.map(memArg => Instr.Store8(NumType.I32, memArg))
-          case 0x3c => Binary.memArg.asParser.map(memArg => Instr.Store8(NumType.I64, memArg))
-          case 0x3b => Binary.memArg.asParser.map(memArg => Instr.Store16(NumType.I32, memArg))
-          case 0x3d => Binary.memArg.asParser.map(memArg => Instr.Store16(NumType.I64, memArg))
-          case 0x3e => Binary.memArg.asParser.map(memArg => Instr.Store32(memArg))
-          case 0x3f => specificByte(0x00).asParser.as(Instr.MemorySize)
-          case 0x40 => specificByte(0x00).asParser.as(Instr.MemoryGrow)
-          case 0x01 => Parser.succeed(Instr.Nop)
-          case 0x00 => Parser.succeed(Instr.Unreachable)
-          case 0x02 =>
-            (Binary.blockType ~ Binary.instr
-              .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
-              .to[Instr.Block]
-          case 0x03 =>
-            (Binary.blockType ~ Binary.instr
-              .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
-              .to[Instr.Loop]
-          case 0x04 =>
-            Binary.blockType.asParser.flatMap { blockType =>
-              (Binary.instr <+> anyByte.filter(b => b == 0x05, SyntaxError.UnexpectedByte))
-                .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)
-                .asParser
-                .map { instrs =>
-                  val (trueInstr, falseInstr) = instrs.splitWhere(_.isRight)
-                  Instr.If(blockType, trueInstr.collect { case Left(i) => i }, falseInstr.collect { case Left(i) => i })
-                }
-            }
-          case 0x0c => Binary.labelIdx.asParser.to[Instr.Br]
-          case 0x0d => Binary.labelIdx.asParser.to[Instr.BrIf]
-          case 0x0e => (vec(Binary.labelIdx) ~ Binary.labelIdx).asParser.to[Instr.BrTable]
-          case 0x0f => Parser.succeed(Instr.Return)
-          case 0x10 => Binary.funcIdx.asParser.to[Instr.Call]
-          case 0x11 =>
-            (Binary.typeIdx ~ Binary.tableIdx).asParser.map { case (typeIdx, tableIdx) =>
-              Instr.CallIndirect(tableIdx, typeIdx)
-            }
+            case other: Int => Parser.fail(SyntaxError.InvalidOpcode(Some(0xfd.toByte), other))
+          }
+        case 0xd0 => Binary.refType.asParser.to[Instr.RefNull]
+        case 0xd1 => Parser.succeed(Instr.RefIsNull)
+        case 0xd2 => Binary.funcIdx.asParser.to[Instr.RefFunc]
+        case 0x1a => Parser.succeed(Instr.Drop)
+        case 0x1c => vec(Binary.valType).asParser.map(values => Instr.Select(Some(values)))
+        case 0x1b => Parser.succeed(Instr.Select(None))
+        case 0x20 => Binary.localIdx.asParser.to[Instr.LocalGet]
+        case 0x21 => Binary.localIdx.asParser.to[Instr.LocalSet]
+        case 0x22 => Binary.localIdx.asParser.to[Instr.LocalTee]
+        case 0x23 => Binary.globalIdx.asParser.to[Instr.GlobalGet]
+        case 0x24 => Binary.globalIdx.asParser.to[Instr.GlobalSet]
+        case 0x25 => Binary.tableIdx.asParser.to[Instr.TableGet]
+        case 0x26 => Binary.tableIdx.asParser.to[Instr.TableSet]
+        case 0x28 => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.I32, memArg))
+        case 0x29 => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.I64, memArg))
+        case 0x2a => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.F32, memArg))
+        case 0x2b => Binary.memArg.asParser.map(memArg => Instr.Load(NumType.F64, memArg))
+        case 0x36 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.I32, memArg))
+        case 0x37 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.I64, memArg))
+        case 0x38 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.F32, memArg))
+        case 0x39 => Binary.memArg.asParser.map(memArg => Instr.Store(NumType.F64, memArg))
+        case 0x2c => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I32, Signedness.Signed, memArg))
+        case 0x2d => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I32, Signedness.Unsigned, memArg))
+        case 0x30 => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I64, Signedness.Signed, memArg))
+        case 0x31 => Binary.memArg.asParser.map(memArg => Instr.Load8(NumType.I64, Signedness.Unsigned, memArg))
+        case 0x2e => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I32, Signedness.Signed, memArg))
+        case 0x2f => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I32, Signedness.Unsigned, memArg))
+        case 0x32 => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I64, Signedness.Signed, memArg))
+        case 0x33 => Binary.memArg.asParser.map(memArg => Instr.Load16(NumType.I64, Signedness.Unsigned, memArg))
+        case 0x34 => Binary.memArg.asParser.map(memArg => Instr.Load32(Signedness.Signed, memArg))
+        case 0x35 => Binary.memArg.asParser.map(memArg => Instr.Load32(Signedness.Unsigned, memArg))
+        case 0x3a => Binary.memArg.asParser.map(memArg => Instr.Store8(NumType.I32, memArg))
+        case 0x3c => Binary.memArg.asParser.map(memArg => Instr.Store8(NumType.I64, memArg))
+        case 0x3b => Binary.memArg.asParser.map(memArg => Instr.Store16(NumType.I32, memArg))
+        case 0x3d => Binary.memArg.asParser.map(memArg => Instr.Store16(NumType.I64, memArg))
+        case 0x3e => Binary.memArg.asParser.map(memArg => Instr.Store32(memArg))
+        case 0x3f => specificByte(0x00).asParser.as(Instr.MemorySize)
+        case 0x40 => specificByte(0x00).asParser.as(Instr.MemoryGrow)
+        case 0x01 => Parser.succeed(Instr.Nop)
+        case 0x00 => Parser.succeed(Instr.Unreachable)
+        case 0x02 =>
+          (Binary.blockType ~ Binary.instr
+            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .to[Instr.Block]
+        case 0x03 =>
+          (Binary.blockType ~ Binary.instr
+            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .to[Instr.Loop]
+        case 0x04 =>
+          Binary.blockType.asParser.flatMap { blockType =>
+            (Binary.instr <+> anyByte.filter(b => b == 0x05, SyntaxError.UnexpectedByte)).autoBacktracking
+              .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)
+              .asParser
+              .map { instrs =>
+                val (trueInstr, falseInstr) = instrs.splitWhere(_.isRight)
+                Instr.If(blockType, trueInstr.collect { case Left(i) => i }, falseInstr.collect { case Left(i) => i })
+              }
+          }
+        case 0x0c => Binary.labelIdx.asParser.to[Instr.Br]
+        case 0x0d => Binary.labelIdx.asParser.to[Instr.BrIf]
+        case 0x0e => (vec(Binary.labelIdx) ~ Binary.labelIdx).asParser.to[Instr.BrTable]
+        case 0x0f => Parser.succeed(Instr.Return)
+        case 0x10 => Binary.funcIdx.asParser.to[Instr.Call]
+        case 0x11 =>
+          (Binary.typeIdx ~ Binary.tableIdx).asParser.map { case (typeIdx, tableIdx) =>
+            Instr.CallIndirect(tableIdx, typeIdx)
+          }
 
-          case _ => Parser.fail(SyntaxError.InvalidOpcode)
-        }
+        case other: Int => Parser.fail(SyntaxError.InvalidOpcode(None, other))
       }
 
     val write: BinaryWriter[Instr] =
@@ -1889,13 +1887,10 @@ object Binary {
       Binary.instr.repeatUntil(specificByte(terminatedBy).unit(terminatedBy)).asPrinter(instructions)
   }
 
-  private[wasm] val instr: BinarySyntax[Instr] = Instructions.read.map { i =>
-    // println(s"Read instr $i")
-    i
-  } <=> Instructions.write
+  private[wasm] val instr: BinarySyntax[Instr] = (Instructions.read <=> Instructions.write) ?? "instr"
 
   private[wasm] val expr: BinarySyntax[Expr] =
-    instr.repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack).of[Expr]
+    instr.repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack).of[Expr] ?? "expr"
 
   private[wasm] opaque type SectionId = Byte
 
@@ -1952,10 +1947,10 @@ object Binary {
       specificByte(0x00).unit(0x00) ~>
       specificByte(0x00).unit(0x00)
 
-  private val typeSection: BinarySyntax[Chunk[FuncType]] = vec(funcType)
+  private val typeSection: BinarySyntax[Chunk[FuncType]] = vec(funcType) ?? "typeSection"
 
   private val importDesc: BinarySyntax[ImportDesc] =
-    (specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
       ImportDesc.Func.apply,
       { case ImportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidImportDesc
@@ -1974,24 +1969,24 @@ object Binary {
         ImportDesc.Global.apply,
         { case ImportDesc.Global(globalIdx) => globalIdx },
         SyntaxError.InvalidImportDesc
-      )
+      )) ?? "importDesc"
 
-  private val `import`: BinarySyntax[Import]             = (name ~ name ~ importDesc).of[Import]
-  private val importSection: BinarySyntax[Chunk[Import]] = vec(`import`)
+  private val `import`: BinarySyntax[Import]             = (name ~ name ~ importDesc).of[Import] ?? "import"
+  private val importSection: BinarySyntax[Chunk[Import]] = vec(`import`) ?? "importSection"
 
-  private val functionSection: BinarySyntax[Chunk[TypeIdx]] = vec(typeIdx)
+  private val functionSection: BinarySyntax[Chunk[TypeIdx]] = vec(typeIdx) ?? "functionSection"
 
-  private val table: BinarySyntax[Table]               = tableType.of[Table]
-  private val tableSection: BinarySyntax[Chunk[Table]] = vec(table)
+  private val table: BinarySyntax[Table]               = tableType.of[Table] ?? "table"
+  private val tableSection: BinarySyntax[Chunk[Table]] = vec(table) ?? "tableSection"
 
-  private val mem                                     = memoryType.of[Mem]
-  private val memorySection: BinarySyntax[Chunk[Mem]] = vec(mem)
+  private val mem                                     = memoryType.of[Mem] ?? "mem"
+  private val memorySection: BinarySyntax[Chunk[Mem]] = vec(mem) ?? "memorySection"
 
-  private val global: BinarySyntax[Global]               = (globalType ~ expr).of[Global]
-  private val globalSection: BinarySyntax[Chunk[Global]] = vec(global)
+  private val global: BinarySyntax[Global]               = (globalType ~ expr).of[Global] ?? "global"
+  private val globalSection: BinarySyntax[Chunk[Global]] = vec(global) ?? "globalSection"
 
   private val exportDesc: BinarySyntax[ExportDesc]       =
-    (specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
       ExportDesc.Func.apply,
       { case ExportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidExportDesc
@@ -2010,12 +2005,12 @@ object Binary {
         ExportDesc.Global.apply,
         { case ExportDesc.Global(globalIdx) => globalIdx },
         SyntaxError.InvalidExportDesc
-      )
-  private val `export`: BinarySyntax[Export]             = (name ~ exportDesc).of[Export]
-  private val exportSection: BinarySyntax[Chunk[Export]] = vec(`export`)
+      )) ?? "exportDesc"
+  private val `export`: BinarySyntax[Export]             = (name ~ exportDesc).of[Export] ?? "export"
+  private val exportSection: BinarySyntax[Chunk[Export]] = vec(`export`) ?? "exportSection"
 
-  private val start: BinarySyntax[Start]        = funcIdx.of[Start]
-  private val startSection: BinarySyntax[Start] = start
+  private val start: BinarySyntax[Start]        = funcIdx.of[Start] ?? "start"
+  private val startSection: BinarySyntax[Start] = start ?? "startSection"
 
   private val elemKind: BinarySyntax[RefType] =
     anyByte.transformEither(
@@ -2027,7 +2022,7 @@ object Binary {
         case RefType.FuncRef => Right(0x00)
         case _               => Left(SyntaxError.InvalidElemKind)
       }
-    )
+    ) ?? "elemKind"
 
   private val elem: BinarySyntax[Elem]               = {
     val parser = u32.asParser.flatMap {
@@ -2108,12 +2103,13 @@ object Binary {
       }
     }
 
-    parser <=> printer
+    (parser <=> printer) ?? "elem"
   }
-  private val elemSection: BinarySyntax[Chunk[Elem]] = vec(elem)
+  private val elemSection: BinarySyntax[Chunk[Elem]] = vec(elem) ?? "elemSection"
 
-  private val locals: BinarySyntax[(Int, ValType)]                            = u32 ~ valType
-  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               = vec(locals) ~ expr
+  private val locals: BinarySyntax[(Int, ValType)]                            = (u32 ~ valType) ?? "locals"
+  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               =
+    (vec(locals) ~ expr) ?? "func"
   private val code: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               = {
     val parser  = (u32.unit(0) ~> func).asParser
     val printer = Printer.byValue { (value: (Chunk[(Int, ValType)], Expr)) =>
@@ -2123,9 +2119,9 @@ object Binary {
       }
     }
 
-    parser <=> printer
+    (parser <=> printer) ?? "code"
   }
-  private val codeSection: BinarySyntax[Chunk[(Chunk[(Int, ValType)], Expr)]] = vec(code)
+  private val codeSection: BinarySyntax[Chunk[(Chunk[(Int, ValType)], Expr)]] = vec(code) ?? "codeSection"
 
   private val data: BinarySyntax[Data]               = {
     val parser = u32.asParser.flatMap {
@@ -2154,11 +2150,11 @@ object Binary {
       }
     }
 
-    parser <=> printer
+    (parser <=> printer) ?? "data"
   }
-  private val dataSection: BinarySyntax[Chunk[Data]] = vec(data)
+  private val dataSection: BinarySyntax[Chunk[Data]] = vec(data) ?? "dataSection"
 
-  private val dataCountSection: BinarySyntax[Int] = u32
+  private val dataCountSection: BinarySyntax[Int] = u32 ?? "dataCountSection"
 
   // TODO: rewrite compress functions to keep order
   private def compressLocals(locals: Chunk[ValType]): Chunk[(Int, ValType)] =
@@ -2239,5 +2235,5 @@ object Binary {
   }
 
   val module: BinarySyntax[Module] =
-    (magic ~> version ~> section.repeat).transformEither(fromSections, toSections)
+    (magic ~> version ~> section.repeat).transformEither(fromSections, toSections) ?? "module"
 }

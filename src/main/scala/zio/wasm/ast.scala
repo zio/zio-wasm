@@ -424,7 +424,7 @@ object LaneIdx {
   }
 }
 
-final case class MemArg(offset: Int, align: Int)
+final case class MemArg(align: Int, offset: Int)
 
 enum VectorLoadShape {
   case WW8

@@ -20,8 +20,6 @@ object BuildHelper {
     val list = yaml.get("jobs").get("test").get("strategy").get("matrix").get("scala").asScala
     list.map(v => (v.split('.').take(2).mkString("."), v)).toMap
   }
-  val Scala212: String                      = versions("2.12")
-  val Scala213: String                      = versions("2.13")
   val ScalaDotty: String                    = versions("3.2")
 
   val SilencerVersion = "1.7.12"
@@ -230,20 +228,9 @@ object BuildHelper {
 
   def stdSettings(prjName: String) = Seq(
     name                                   := s"$prjName",
-    crossScalaVersions                     := Nil,// Seq(Scala212, Scala213),
+    crossScalaVersions                     := Nil,
     ThisBuild / scalaVersion               := ScalaDotty,
     scalacOptions                          := stdOptions ++ extraOptions(scalaVersion.value, optimize = !isSnapshot.value),
-    libraryDependencies ++= {
-      if (scalaVersion.value == ScalaDotty)
-        Seq(
-          "com.github.ghik" % s"silencer-lib_$Scala213" % SilencerVersion % Provided
-        )
-      else
-        Seq(
-          "com.github.ghik" % "silencer-lib"            % SilencerVersion % Provided cross CrossVersion.full,
-          compilerPlugin("com.github.ghik" % "silencer-plugin" % SilencerVersion cross CrossVersion.full)
-        )
-    },
     semanticdbEnabled                      := scalaVersion.value != ScalaDotty, // enable SemanticDB
     semanticdbOptions += "-P:semanticdb:synthetics:on",
     semanticdbVersion                      := scalafixSemanticdb.revision,      // use Scalafix compatible version
@@ -295,15 +282,6 @@ object BuildHelper {
     Test / test             := (Test / compile).value,
     doc / skip              := true,
     Compile / doc / sources := Seq.empty
-  )
-
-  val scalaReflectTestSettings: List[Setting[_]] = List(
-    libraryDependencies ++= {
-      if (scalaVersion.value == ScalaDotty)
-        Seq("org.scala-lang" % "scala-reflect" % Scala213           % Test)
-      else
-        Seq("org.scala-lang" % "scala-reflect" % scalaVersion.value % Test)
-    }
   )
 
   def welcomeMessage = onLoadMessage := {

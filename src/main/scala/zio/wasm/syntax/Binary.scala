@@ -54,6 +54,21 @@ object Binary {
       anyBytes.asPrinter(builder.result())
     }
 
+  private[wasm] def writeUnsignedLEB128i128: BinaryWriter[Int128] =
+    Printer.byValue { (value: Int128) =>
+      // Unsigned LEB128
+      val builder   = ChunkBuilder.make[Byte]()
+      var remaining = value >>> 7
+      var current   = value
+      while (remaining != Int128.zero) {
+        builder += ((current & 0x7f) | 0x80).toByte
+        current = remaining
+        remaining >>>= 7
+      }
+      builder += (current & 0x7f).toByte
+      anyBytes.asPrinter(builder.result())
+    }
+
   private[wasm] def readUnsignedLEB128Int: BinaryReader[Int] = {
     def read(result: Int, count: Int): BinaryReader[Int] =
       if (count > 5) {
@@ -81,7 +96,7 @@ object Binary {
       } else {
         anyByte.asParser.flatMap { byte =>
           val cur       = byte & 0xff
-          val newResult = result | ((cur & 0x7f) << (7 * count))
+          val newResult = result | ((cur & 0x7f).toLong << (7 * count))
           val newCount  = count + 1
           if ((cur & 0x80) == 0x80) {
             read(newResult, newCount)
@@ -92,6 +107,26 @@ object Binary {
       }
 
     read(0, 0)
+  }
+
+  private[wasm] def readUnsignedLEB128i128: BinaryReader[Int128] = {
+    def read(result: Int128, count: Int): BinaryReader[Int128] =
+      if (count > 20) {
+        Parser.fail(SyntaxError.InvalidLEB128)
+      } else {
+        anyByte.asParser.flatMap { byte =>
+          val cur       = byte & 0xff
+          val newResult = result | (Int128.fromInt(cur & 0x7f) << (7 * count))
+          val newCount  = count + 1
+          if ((cur & 0x80) == 0x80) {
+            read(newResult, newCount)
+          } else {
+            Parser.succeed(newResult)
+          }
+        }
+      }
+
+    read(Int128.zero, 0)
   }
 
   private[wasm] def writeSignedLEB128Int: BinaryWriter[Int] =
@@ -118,7 +153,24 @@ object Binary {
       var remaining = value >> 7
       var current   = value
       var hasMore   = true
-      val end       = if ((value & Int.MinValue) == 0) 0 else -1
+      val end       = if ((value & Long.MinValue) == 0) 0L else -1L
+      while (hasMore) {
+        hasMore = (remaining != end) || ((remaining & 1) != ((current >> 6) & 1))
+        builder += ((current & 0x7f) | (if (hasMore) 0x80 else 0)).toByte
+        current = remaining
+        remaining >>= 7
+      }
+      anyBytes.asPrinter(builder.result())
+    }
+
+  private[wasm] def writeSignedLEB128i128: BinaryWriter[Int128] =
+    Printer.byValue { (value: Int128) =>
+      // Signed LEB128
+      val builder   = ChunkBuilder.make[Byte]()
+      var remaining = value >> 7
+      var current   = value
+      var hasMore   = true
+      val end       = if ((value & Int128.MinValue) == Int128.zero) Int128.zero else Int128.minus1
       while (hasMore) {
         hasMore = (remaining != end) || ((remaining & 1) != ((current >> 6) & 1))
         builder += ((current & 0x7f) | (if (hasMore) 0x80 else 0)).toByte
@@ -162,7 +214,7 @@ object Binary {
       } else {
         anyByte.asParser.flatMap { byte =>
           val cur         = byte & 0xff
-          val newResult   = result | ((cur & 0x7f) << (7 * count))
+          val newResult   = result | ((cur & 0x7f).toLong << (7 * count))
           val newSignBits = signBits << 7
           val newCount    = count + 1
           if ((cur & 0x80) == 0x80) {
@@ -173,8 +225,35 @@ object Binary {
         }
       }
 
-    read(0, 0, -1).map { case (result, signBits) =>
+    read(0L, 0, -1L).map { case (result, signBits) =>
       if (((signBits >> 1) & result) != 0) {
+        result | signBits
+      } else {
+        result
+      }
+    }
+  }
+
+  private[wasm] def readSignedLEB128i128: BinaryReader[Int128] = {
+    def read(result: Int128, count: Int, signBits: Int128): BinaryReader[(Int128, Int128)] =
+      if (count > 20) {
+        Parser.fail(SyntaxError.InvalidLEB128)
+      } else {
+        anyByte.asParser.flatMap { byte =>
+          val cur         = byte & 0xff
+          val newResult   = result | (Int128.fromInt((cur & 0x7f)) << (7 * count))
+          val newSignBits = signBits << 7
+          val newCount    = count + 1
+          if ((cur & 0x80) == 0x80) {
+            read(newResult, newCount, newSignBits)
+          } else {
+            Parser.succeed((newResult, newSignBits))
+          }
+        }
+      }
+
+    read(Int128.zero, 0, Int128.minus1).map { case (result, signBits) =>
+      if (((signBits >> 1) & result) != Int128.zero) {
         result | signBits
       } else {
         result
@@ -198,7 +277,8 @@ object Binary {
       (f: Double) => java.lang.Double.doubleToLongBits(f)
     )
 
-  private[wasm] val i128: Syntax[SyntaxError, Byte, Byte, Int128] = Syntax.succeed(Int128(0, 0)) // TODO
+  private[wasm] val u128: Syntax[SyntaxError, Byte, Byte, Int128] = readUnsignedLEB128i128 <=> writeUnsignedLEB128i128
+  private[wasm] val i128: Syntax[SyntaxError, Byte, Byte, Int128] = readSignedLEB128i128 <=> writeSignedLEB128i128
 
   private[wasm] def vec[A](elem: BinarySyntax[A]): BinarySyntax[Chunk[A]] = {
     val printer =

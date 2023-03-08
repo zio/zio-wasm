@@ -4,6 +4,12 @@ import zio.test.*
 
 object AstGen {
 
+  val int128: Gen[Any, Int128] =
+    for {
+      high <- Gen.long
+      low  <- Gen.long
+    } yield Int128(high, low)
+
   val numType: Gen[Any, NumType] = Gen.oneOf(
     Gen.const(NumType.I32),
     Gen.const(NumType.I64),

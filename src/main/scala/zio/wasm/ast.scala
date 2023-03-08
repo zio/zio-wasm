@@ -831,8 +831,6 @@ enum Instr {
 
 final case class Expr(instructions: Chunk[Instr])
 
-final case class Int128(low: Long, high: Long)
-
 opaque type Name = String
 object Name {
   def fromString(name: String): Name      = name

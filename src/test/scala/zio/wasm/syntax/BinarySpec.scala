@@ -49,7 +49,7 @@ object BinarySpec extends ZIOSpecDefault {
             r7 == 0xffffffff
           )
         },
-        test("Unsigned LEB128 roundtrip") {
+        test("Unsigned 32bit LEB128 roundtrip") {
           check(Gen.int) { value =>
             for {
               bytes  <- ZIO.fromEither(Binary.u32.print(value))
@@ -57,11 +57,43 @@ object BinarySpec extends ZIOSpecDefault {
             } yield assertTrue(result == value)
           }
         },
-        test("Signed LEB128 roundtrip") {
+        test("Signed 32bit LEB128 roundtrip") {
           check(Gen.int) { value =>
             for {
               bytes  <- ZIO.fromEither(Binary.i32.print(value))
               result <- ZIO.fromEither(Binary.i32.parseChunk(bytes))
+            } yield assertTrue(result == value)
+          }
+        },
+        test("Unsigned 64bit LEB128 roundtrip") {
+          check(Gen.long) { value =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.u64.print(value))
+              result <- ZIO.fromEither(Binary.u64.parseChunk(bytes))
+            } yield assertTrue(result == value)
+          }
+        },
+        test("Signed 64bit LEB128 roundtrip") {
+          check(Gen.long) { value =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.i64.print(value))
+              result <- ZIO.fromEither(Binary.i64.parseChunk(bytes))
+            } yield assertTrue(result == value)
+          }
+        },
+        test("Unsigned 128bit LEB128 roundtrip") {
+          check(AstGen.int128) { value =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.u128.print(value))
+              result <- ZIO.fromEither(Binary.u128.parseChunk(bytes))
+            } yield assertTrue(result == value)
+          }
+        },
+        test("Signed 128bit LEB128 roundtrip") {
+          check(AstGen.int128) { value =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.i128.print(value))
+              result <- ZIO.fromEither(Binary.i128.parseChunk(bytes))
             } yield assertTrue(result == value)
           }
         }
@@ -219,7 +251,6 @@ object BinarySpec extends ZIOSpecDefault {
           val value  = Chunk(value1, value2)
           for {
             bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
-            _      <- ZIO.debug(bytes.map(_.toInt.toHexString).mkString(" "))
             result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
           } yield assertTrue(result == value)
         },

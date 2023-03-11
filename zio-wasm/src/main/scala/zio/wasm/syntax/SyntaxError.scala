@@ -17,6 +17,15 @@ enum SyntaxError {
   case InnerParserError(error: ParserError[SyntaxError])
   case FunctionAndCodeSectionSizeMismatch
 
+  case InvalidDigit
+  case InvalidComment
+  case UnexpectedKeyword(error: String)
+  case Int32TooLarge
+  case InvalidSign
+  case InvalidGlobalType
+  case InvalidId
+  case InvalidInstruction
+
   override def toString: String = this match {
     case InvalidLEB128                      => "Invalid LEB128"
     case InvalidNumType                     => "Invalid num type"
@@ -33,5 +42,13 @@ enum SyntaxError {
     case InvalidElemKind                    => "Invalid elem kind"
     case InnerParserError(error)            => error.toString
     case FunctionAndCodeSectionSizeMismatch => "Function and code section size mismatch"
+    case InvalidDigit                       => "Invalid digit"
+    case InvalidComment                     => "Invalid comment"
+    case UnexpectedKeyword(error)           => s"Unexpected keyword ($error)"
+    case Int32TooLarge                      => "Int32 too large"
+    case InvalidSign                        => "Invalid sign"
+    case InvalidGlobalType                  => "Invalid global type"
+    case InvalidId                          => "Invalid id"
+    case InvalidInstruction                 => "Invalid instruction"
   }
 }

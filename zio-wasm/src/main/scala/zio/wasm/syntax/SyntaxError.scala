@@ -25,6 +25,7 @@ enum SyntaxError {
   case InvalidGlobalType
   case InvalidId
   case InvalidInstruction
+  case InvalidMemArg
 
   override def toString: String = this match {
     case InvalidLEB128                      => "Invalid LEB128"
@@ -50,5 +51,6 @@ enum SyntaxError {
     case InvalidGlobalType                  => "Invalid global type"
     case InvalidId                          => "Invalid id"
     case InvalidInstruction                 => "Invalid instruction"
+    case InvalidMemArg                      => "Invalid mem arg"
   }
 }

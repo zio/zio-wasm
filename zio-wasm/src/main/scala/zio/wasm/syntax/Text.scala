@@ -254,9 +254,13 @@ object Text {
   private def fracToHex(value: Double): Chunk[Long] =
     longToHex(value.toString.split('.').last.toLong) // TODO
 
-  private[wasm] val frac    = digit.repeatWithSep(Syntax.char('_').?.unit(None)).transform(decToFrac, fracToDec) ?? "frac"
+  private[wasm] val frac    = digit
+    .repeatWithSep(Syntax.char('_').mapError(_ => SyntaxError.UnexpectedByte).?.unit(None))
+    .transform(decToFrac, fracToDec) ?? "frac"
   private[wasm] val hexfrac =
-    hexdigit.repeatWithSep(Syntax.char('_').?.unit(None)).transform(hexToFrac, fracToHex) ?? "hexfrac"
+    hexdigit
+      .repeatWithSep(Syntax.char('_').mapError(_ => SyntaxError.UnexpectedByte).?.unit(None))
+      .transform(hexToFrac, fracToHex) ?? "hexfrac"
   private[wasm] val float =
 //    (num ~ Syntax.char('.') ~ frac ~ Syntax.charIn('e', 'E') ~ sign.? ~ num).transform(
 //      { case (l, _, _, sign, e) => ??? },
@@ -266,23 +270,39 @@ object Text {
 //        { case (l, _, _, sign, e) => ??? },
 //        { case d => ??? }
 //      ) |
-    (num ~ Syntax.char('.') ~ frac).transform({ case (l, d) => l.toDouble + d }, d => (d.toLong, d - d.toLong)) // |
+    (num ~ Syntax.char('.').mapError(_ => SyntaxError.UnexpectedByte) ~ frac)
+      .transform({ case (l, d) => l.toDouble + d }, d => (d.toLong, d - d.toLong)) // |
 //      (num ~ Syntax.char('.').?).transform(_.toDouble, _.toLong) ?? "float" // TODO
 
-  private[wasm] val fNmag = (
+  private[wasm] val f64mag = (
     float |
-      Syntax.string("inf", Double.PositiveInfinity) |
-      Syntax.string("nan", Double.NaN)
-  ) ?? "fNmag" // TODO: or hexFloat or nan(n)
+      keyword("inf").as(Double.PositiveInfinity) |
+      keyword("nan").as(Double.NaN)
+  ) ?? "f64mag" // TODO: or hexFloat or nan(n)
 
-  private[wasm] val fN = (sign.? ~ fNmag).transform(
+  private[wasm] val f64 = (sign.? ~ f64mag).transform(
     {
       case (None, n)      => n
       case (Some('-'), n) => -n
       case (Some('+'), n) => n
     },
     (n: Double) => if (n >= 0) (None, n) else (Some('-'), -n)
-  ) ?? "fN"
+  ) ?? "f64"
+
+  private[wasm] val f32mag = (
+    float.transform(_.toFloat, _.toDouble) |
+      keyword("inf").as(Float.PositiveInfinity) |
+      keyword("nan").as(Float.NaN)
+  ) ?? "f64mag" // TODO: or hexFloat or nan(n)
+
+  private[wasm] val f32 = (sign.? ~ f32mag).transform(
+    {
+      case (None, n)      => n
+      case (Some('-'), n) => -n
+      case (Some('+'), n) => n
+    },
+    (n: Float) => if (n >= 0) (None, n) else (Some('-'), -n)
+  ) ?? "f32"
 
   private[wasm] val stringchar =
     (Syntax.charNotIn((0x00.toChar to 0x1f.toChar) ++ Seq(0x7f.toChar, '\\', '"'): _*) |
@@ -441,46 +461,6 @@ object Text {
     ) |
       u32.transform(DataIdx.fromInt, _.toInt)) ?? "dataidx"
 
-  private def op0(name: String, instr: Instr): TextSyntax[Instr] =
-    keyword(name).as(instr)
-
-  private def op1[I <: Instr: ClassTag, A](
-      name: String,
-      p1: TextSyntax[A],
-      create: A => I,
-      extract: I => A
-  ): TextSyntax[Instr] =
-    (keyword(name) ~> space ~> p1).transformTo(
-      create,
-      { case i: I => extract(i) },
-      SyntaxError.InvalidInstruction
-    )
-
-  private def op1Custom[I <: Instr, A](
-      name: String,
-      p1: TextSyntax[A],
-      create: A => I,
-      extract: PartialFunction[Instr, A]
-  ): TextSyntax[Instr] =
-    (keyword(name) ~> space ~> p1).transformTo(
-      create,
-      extract,
-      SyntaxError.InvalidInstruction
-    )
-
-  private def op2[I <: Instr: ClassTag, A, B](
-      name: String,
-      p1: TextSyntax[A],
-      p2: TextSyntax[B],
-      create: (A, B) => I,
-      extract: I => (A, B)
-  ): TextSyntax[Instr] =
-    (keyword(name) ~> space ~> p1 ~ space ~ p2).transformTo(
-      create(_, _),
-      { case i: I => extract(i) },
-      SyntaxError.InvalidInstruction
-    )
-
   private[wasm] def typeuse(using ctx: IdentifierContext): TextSyntax[TypeIdx] =
     ??? // TODO
 
@@ -494,235 +474,397 @@ object Text {
       SyntaxError.InvalidMemArg
     ) ?? "memarg"
 
-  private[wasm] def plaininstr(using ctx: IdentifierContext): TextSyntax[Instr] =
-    op0("unreachable", Instr.Unreachable) |
-      op0("nop", Instr.Nop) |
-      op1[Instr.Br, LabelIdx]("br", labelidx, Instr.Br.apply, _.labelIdx) |
-      op1[Instr.BrIf, LabelIdx]("br_if", labelidx, Instr.BrIf.apply, _.labelIdx) |
-      op2[Instr.BrTable, Chunk[LabelIdx], LabelIdx](
-        "br_table",
-        vec(labelidx),
-        labelidx,
-        Instr.BrTable.apply,
-        i => (i.labels, i.default)
-      ) |
-      op0("return", Instr.Return) |
-      op1[Instr.Call, FuncIdx]("call", funcidx, Instr.Call.apply, _.idx) |
-      op2[Instr.CallIndirect, Option[TableIdx], TypeIdx](
-        "call_indirect",
-        tableidx.?,
-        typeuse,
-        (tableIdx, typeIdx) => Instr.CallIndirect(tableIdx.getOrElse(TableIdx.fromInt(0)), typeIdx),
-        i => (Some(i.tableIdx), i.typeIdx)
-      ) |
+  private object Instructions {
+
+    private def op0(name: String, instr: Instr): TextSyntax[Instr] =
+      keyword(name).as(instr)
+
+    private def op1[I <: Instr: ClassTag, A](
+        name: String,
+        p1: TextSyntax[A],
+        create: A => I,
+        extract: I => A
+    ): TextSyntax[Instr] =
+      (keyword(name) ~> space ~> p1).transformTo(
+        create,
+        { case i: I => extract(i) },
+        SyntaxError.InvalidInstruction
+      )
+
+    private def op1Custom[I <: Instr, A](
+        name: String,
+        p1: TextSyntax[A],
+        create: A => I,
+        extract: PartialFunction[Instr, A]
+    ): TextSyntax[Instr] =
+      (keyword(name) ~> space ~> p1).transformTo(
+        create,
+        extract,
+        SyntaxError.InvalidInstruction
+      )
+
+    private def op2[I <: Instr: ClassTag, A, B](
+        name: String,
+        p1: TextSyntax[A],
+        p2: TextSyntax[B],
+        create: (A, B) => I,
+        extract: I => (A, B)
+    ): TextSyntax[Instr] =
+      (keyword(name) ~> space ~> p1 ~ space ~ p2).transformTo(
+        create(_, _),
+        { case i: I => extract(i) },
+        SyntaxError.InvalidInstruction
+      )
+
+    def control(using IdentifierContext) =
+      op0("unreachable", Instr.Unreachable) |
+        op0("nop", Instr.Nop) |
+        op1[Instr.Br, LabelIdx]("br", labelidx, Instr.Br.apply, _.labelIdx) |
+        op1[Instr.BrIf, LabelIdx]("br_if", labelidx, Instr.BrIf.apply, _.labelIdx) |
+        op2[Instr.BrTable, Chunk[LabelIdx], LabelIdx](
+          "br_table",
+          vec(labelidx),
+          labelidx,
+          Instr.BrTable.apply,
+          i => (i.labels, i.default)
+        ) |
+        op0("return", Instr.Return) |
+        op1[Instr.Call, FuncIdx]("call", funcidx, Instr.Call.apply, _.idx) |
+        op2[Instr.CallIndirect, Option[TableIdx], TypeIdx](
+          "call_indirect",
+          tableidx.?,
+          typeuse,
+          (tableIdx, typeIdx) => Instr.CallIndirect(tableIdx.getOrElse(TableIdx.fromInt(0)), typeIdx),
+          i => (Some(i.tableIdx), i.typeIdx)
+        )
+
+    def ref(using IdentifierContext) =
       op1[Instr.RefNull, RefType]("ref.null", heaptype, Instr.RefNull.apply, _.refType) |
-      op0("ref.is_null", Instr.RefIsNull) |
-      op1[Instr.RefFunc, FuncIdx]("ref.func", funcidx, Instr.RefFunc.apply, _.idx) |
-      op0("drop", Instr.Drop) |
-      op1[Instr.Select, Option[Chunk[ValType]]]("select", result.?, Instr.Select.apply, _.types) |
+        op0("ref.is_null", Instr.RefIsNull) |
+        op1[Instr.RefFunc, FuncIdx]("ref.func", funcidx, Instr.RefFunc.apply, _.idx)
+
+    val parametric =
+      op0("drop", Instr.Drop)
+      op1[Instr.Select, Option[Chunk[ValType]]]("select", result.?, Instr.Select.apply, _.types)
+
+    def table(using IdentifierContext) =
       op1[Instr.LocalGet, LocalIdx]("local.get", localidx, Instr.LocalGet.apply, _.idx) |
-      op1[Instr.LocalSet, LocalIdx]("local.set", localidx, Instr.LocalSet.apply, _.idx) |
-      op1[Instr.LocalTee, LocalIdx]("local.tee", localidx, Instr.LocalTee.apply, _.idx) |
-      op1[Instr.GlobalGet, GlobalIdx]("global.get", globalidx, Instr.GlobalGet.apply, _.idx) |
-      op1[Instr.GlobalSet, GlobalIdx]("global.set", globalidx, Instr.GlobalSet.apply, _.idx) |
-      op1[Instr.TableGet, Option[TableIdx]](
-        "table.get",
-        tableidx.?,
-        idx => Instr.TableGet(idx.getOrElse(TableIdx.fromInt(0))),
-        i => Some(i.idx)
-      ) |
-      op1[Instr.TableSet, Option[TableIdx]](
-        "table.set",
-        tableidx.?,
-        idx => Instr.TableSet(idx.getOrElse(TableIdx.fromInt(0))),
-        i => Some(i.idx)
-      ) |
-      op1[Instr.TableSize, Option[TableIdx]](
-        "table.size",
-        tableidx.?,
-        idx => Instr.TableSize(idx.getOrElse(TableIdx.fromInt(0))),
-        i => Some(i.idx)
-      ) |
-      op1[Instr.TableGrow, Option[TableIdx]](
-        "table.grow",
-        tableidx.?,
-        idx => Instr.TableGrow(idx.getOrElse(TableIdx.fromInt(0))),
-        i => Some(i.idx)
-      ) |
-      op1[Instr.TableFill, Option[TableIdx]](
-        "table.fill",
-        tableidx.?,
-        idx => Instr.TableFill(idx.getOrElse(TableIdx.fromInt(0))),
-        i => Some(i.idx)
-      ) |
-      op2[Instr.TableCopy, Option[TableIdx], Option[TableIdx]](
-        "table.copy",
-        tableidx.?,
-        tableidx.?,
-        (s, d) => Instr.TableCopy(s.getOrElse(TableIdx.fromInt(0)), d.getOrElse(TableIdx.fromInt(0))),
-        i => (Some(i.source), Some(i.destination))
-      ) |
-      op2[Instr.TableInit, Option[TableIdx], ElemIdx](
-        "table.init",
-        tableidx.?,
-        elemidx,
-        (tableIdx, elemIdx) => Instr.TableInit(tableIdx.getOrElse(TableIdx.fromInt(0)), elemIdx),
-        i => (Some(i.tableIdx), i.elemIdx)
-      ) |
-      op1[Instr.ElemDrop, ElemIdx]("elem.drop", elemidx, Instr.ElemDrop.apply, _.idx) |
+        op1[Instr.LocalSet, LocalIdx]("local.set", localidx, Instr.LocalSet.apply, _.idx) |
+        op1[Instr.LocalTee, LocalIdx]("local.tee", localidx, Instr.LocalTee.apply, _.idx) |
+        op1[Instr.GlobalGet, GlobalIdx]("global.get", globalidx, Instr.GlobalGet.apply, _.idx) |
+        op1[Instr.GlobalSet, GlobalIdx]("global.set", globalidx, Instr.GlobalSet.apply, _.idx) |
+        op1[Instr.TableGet, Option[TableIdx]](
+          "table.get",
+          tableidx.?,
+          idx => Instr.TableGet(idx.getOrElse(TableIdx.fromInt(0))),
+          i => Some(i.idx)
+        ) |
+        op1[Instr.TableSet, Option[TableIdx]](
+          "table.set",
+          tableidx.?,
+          idx => Instr.TableSet(idx.getOrElse(TableIdx.fromInt(0))),
+          i => Some(i.idx)
+        ) |
+        op1[Instr.TableSize, Option[TableIdx]](
+          "table.size",
+          tableidx.?,
+          idx => Instr.TableSize(idx.getOrElse(TableIdx.fromInt(0))),
+          i => Some(i.idx)
+        ) |
+        op1[Instr.TableGrow, Option[TableIdx]](
+          "table.grow",
+          tableidx.?,
+          idx => Instr.TableGrow(idx.getOrElse(TableIdx.fromInt(0))),
+          i => Some(i.idx)
+        ) |
+        op1[Instr.TableFill, Option[TableIdx]](
+          "table.fill",
+          tableidx.?,
+          idx => Instr.TableFill(idx.getOrElse(TableIdx.fromInt(0))),
+          i => Some(i.idx)
+        ) |
+        op2[Instr.TableCopy, Option[TableIdx], Option[TableIdx]](
+          "table.copy",
+          tableidx.?,
+          tableidx.?,
+          (s, d) => Instr.TableCopy(s.getOrElse(TableIdx.fromInt(0)), d.getOrElse(TableIdx.fromInt(0))),
+          i => (Some(i.source), Some(i.destination))
+        ) |
+        op2[Instr.TableInit, Option[TableIdx], ElemIdx](
+          "table.init",
+          tableidx.?,
+          elemidx,
+          (tableIdx, elemIdx) => Instr.TableInit(tableIdx.getOrElse(TableIdx.fromInt(0)), elemIdx),
+          i => (Some(i.tableIdx), i.elemIdx)
+        ) |
+        op1[Instr.ElemDrop, ElemIdx]("elem.drop", elemidx, Instr.ElemDrop.apply, _.idx)
+
+    def memory(using IdentifierContext) =
       op1Custom[Instr.Load, MemArg](
         "i32.load",
         memarg,
         Instr.Load(NumType.I32, _),
         { case Instr.Load(NumType.I32, memarg) => memarg }
       ) |
-      op1Custom[Instr.Load, MemArg](
-        "i64.load",
-        memarg,
-        Instr.Load(NumType.I64, _),
-        { case Instr.Load(NumType.I64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load, MemArg](
-        "f32.load",
-        memarg,
-        Instr.Load(NumType.F32, _),
-        { case Instr.Load(NumType.F32, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load, MemArg](
-        "f64.load",
-        memarg,
-        Instr.Load(NumType.F64, _),
-        { case Instr.Load(NumType.F64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load8, MemArg](
-        "i32.load8_s",
-        memarg,
-        Instr.Load8(NumType.I32, Signedness.Signed, _),
-        { case Instr.Load8(NumType.I32, Signedness.Signed, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load8, MemArg](
-        "i32.load8_u",
-        memarg,
-        Instr.Load8(NumType.I32, Signedness.Unsigned, _),
-        { case Instr.Load8(NumType.I32, Signedness.Unsigned, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load8, MemArg](
-        "i64.load8_s",
-        memarg,
-        Instr.Load8(NumType.I64, Signedness.Signed, _),
-        { case Instr.Load8(NumType.I64, Signedness.Signed, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load8, MemArg](
-        "i64.load8_u",
-        memarg,
-        Instr.Load8(NumType.I64, Signedness.Unsigned, _),
-        { case Instr.Load8(NumType.I64, Signedness.Unsigned, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load16, MemArg](
-        "i32.load16_s",
-        memarg,
-        Instr.Load16(NumType.I32, Signedness.Signed, _),
-        { case Instr.Load16(NumType.I32, Signedness.Signed, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load16, MemArg](
-        "i32.load16_u",
-        memarg,
-        Instr.Load16(NumType.I32, Signedness.Unsigned, _),
-        { case Instr.Load16(NumType.I32, Signedness.Unsigned, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load16, MemArg](
-        "i64.load16_s",
-        memarg,
-        Instr.Load16(NumType.I64, Signedness.Signed, _),
-        { case Instr.Load16(NumType.I64, Signedness.Signed, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load16, MemArg](
-        "i64.load16_u",
-        memarg,
-        Instr.Load16(NumType.I64, Signedness.Unsigned, _),
-        { case Instr.Load16(NumType.I64, Signedness.Unsigned, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load32, MemArg](
-        "i64.load32_s",
-        memarg,
-        Instr.Load32(Signedness.Signed, _),
-        { case Instr.Load32(Signedness.Signed, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Load32, MemArg](
-        "i64.load32_u",
-        memarg,
-        Instr.Load32(Signedness.Unsigned, _),
-        { case Instr.Load32(Signedness.Unsigned, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store, MemArg](
-        "i32.store",
-        memarg,
-        Instr.Store(NumType.I32, _),
-        { case Instr.Store(NumType.I32, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store, MemArg](
-        "i64.store",
-        memarg,
-        Instr.Store(NumType.I64, _),
-        { case Instr.Store(NumType.I64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store, MemArg](
-        "f32.store",
-        memarg,
-        Instr.Store(NumType.F32, _),
-        { case Instr.Store(NumType.F32, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store, MemArg](
-        "f64.store",
-        memarg,
-        Instr.Store(NumType.F64, _),
-        { case Instr.Store(NumType.F64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store8, MemArg](
-        "i32.store8",
-        memarg,
-        Instr.Store8(NumType.I32, _),
-        { case Instr.Store8(NumType.I32, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store8, MemArg](
-        "i64.store8",
-        memarg,
-        Instr.Store8(NumType.I64, _),
-        { case Instr.Store8(NumType.I64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store16, MemArg](
-        "i32.store16",
-        memarg,
-        Instr.Store16(NumType.I32, _),
-        { case Instr.Store16(NumType.I32, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store16, MemArg](
-        "i64.store16",
-        memarg,
-        Instr.Store16(NumType.I64, _),
-        { case Instr.Store16(NumType.I64, memarg) => memarg }
-      ) |
-      op1Custom[Instr.Store32, MemArg](
-        "i64.store32",
-        memarg,
-        Instr.Store32(_),
-        { case Instr.Store32(memarg) => memarg }
-      ) |
-      op0("memory.size", Instr.MemorySize) |
-      op0("memory.grow", Instr.MemoryGrow) |
-      op0("memory.fill", Instr.MemoryFill) |
-      op0("memory.copy", Instr.MemoryCopy) |
-      op1[Instr.MemoryInit, DataIdx](
-        "memory.init",
-        dataidx,
-        Instr.MemoryInit(_),
-        _.idx
-      ) |
-      op1[Instr.DataDrop, DataIdx](
-        "data.drop",
-        dataidx,
-        Instr.DataDrop(_),
-        _.idx
-      )
+        op1Custom[Instr.Load, MemArg](
+          "i64.load",
+          memarg,
+          Instr.Load(NumType.I64, _),
+          { case Instr.Load(NumType.I64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load, MemArg](
+          "f32.load",
+          memarg,
+          Instr.Load(NumType.F32, _),
+          { case Instr.Load(NumType.F32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load, MemArg](
+          "f64.load",
+          memarg,
+          Instr.Load(NumType.F64, _),
+          { case Instr.Load(NumType.F64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load8, MemArg](
+          "i32.load8_s",
+          memarg,
+          Instr.Load8(NumType.I32, Signedness.Signed, _),
+          { case Instr.Load8(NumType.I32, Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load8, MemArg](
+          "i32.load8_u",
+          memarg,
+          Instr.Load8(NumType.I32, Signedness.Unsigned, _),
+          { case Instr.Load8(NumType.I32, Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load8, MemArg](
+          "i64.load8_s",
+          memarg,
+          Instr.Load8(NumType.I64, Signedness.Signed, _),
+          { case Instr.Load8(NumType.I64, Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load8, MemArg](
+          "i64.load8_u",
+          memarg,
+          Instr.Load8(NumType.I64, Signedness.Unsigned, _),
+          { case Instr.Load8(NumType.I64, Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load16, MemArg](
+          "i32.load16_s",
+          memarg,
+          Instr.Load16(NumType.I32, Signedness.Signed, _),
+          { case Instr.Load16(NumType.I32, Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load16, MemArg](
+          "i32.load16_u",
+          memarg,
+          Instr.Load16(NumType.I32, Signedness.Unsigned, _),
+          { case Instr.Load16(NumType.I32, Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load16, MemArg](
+          "i64.load16_s",
+          memarg,
+          Instr.Load16(NumType.I64, Signedness.Signed, _),
+          { case Instr.Load16(NumType.I64, Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load16, MemArg](
+          "i64.load16_u",
+          memarg,
+          Instr.Load16(NumType.I64, Signedness.Unsigned, _),
+          { case Instr.Load16(NumType.I64, Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load32, MemArg](
+          "i64.load32_s",
+          memarg,
+          Instr.Load32(Signedness.Signed, _),
+          { case Instr.Load32(Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Load32, MemArg](
+          "i64.load32_u",
+          memarg,
+          Instr.Load32(Signedness.Unsigned, _),
+          { case Instr.Load32(Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store, MemArg](
+          "i32.store",
+          memarg,
+          Instr.Store(NumType.I32, _),
+          { case Instr.Store(NumType.I32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store, MemArg](
+          "i64.store",
+          memarg,
+          Instr.Store(NumType.I64, _),
+          { case Instr.Store(NumType.I64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store, MemArg](
+          "f32.store",
+          memarg,
+          Instr.Store(NumType.F32, _),
+          { case Instr.Store(NumType.F32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store, MemArg](
+          "f64.store",
+          memarg,
+          Instr.Store(NumType.F64, _),
+          { case Instr.Store(NumType.F64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store8, MemArg](
+          "i32.store8",
+          memarg,
+          Instr.Store8(NumType.I32, _),
+          { case Instr.Store8(NumType.I32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store8, MemArg](
+          "i64.store8",
+          memarg,
+          Instr.Store8(NumType.I64, _),
+          { case Instr.Store8(NumType.I64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store16, MemArg](
+          "i32.store16",
+          memarg,
+          Instr.Store16(NumType.I32, _),
+          { case Instr.Store16(NumType.I32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store16, MemArg](
+          "i64.store16",
+          memarg,
+          Instr.Store16(NumType.I64, _),
+          { case Instr.Store16(NumType.I64, memarg) => memarg }
+        ) |
+        op1Custom[Instr.Store32, MemArg](
+          "i64.store32",
+          memarg,
+          Instr.Store32(_),
+          { case Instr.Store32(memarg) => memarg }
+        ) |
+        op0("memory.size", Instr.MemorySize) |
+        op0("memory.grow", Instr.MemoryGrow) |
+        op0("memory.fill", Instr.MemoryFill) |
+        op0("memory.copy", Instr.MemoryCopy) |
+        op1[Instr.MemoryInit, DataIdx](
+          "memory.init",
+          dataidx,
+          Instr.MemoryInit(_),
+          _.idx
+        ) |
+        op1[Instr.DataDrop, DataIdx](
+          "data.drop",
+          dataidx,
+          Instr.DataDrop(_),
+          _.idx
+        )
+
+    val numeric =
+      op1[Instr.I32Const, Int]("i32.const", s32, Instr.I32Const(_), _.value) |
+        op1[Instr.I64Const, Long]("i64.const", s64, Instr.I64Const(_), _.value) |
+        op1[Instr.F32Const, Float]("f32.const", f32, Instr.F32Const(_), _.value) |
+        op1[Instr.F64Const, Double]("f64.const", f64, Instr.F64Const(_), _.value) |
+        op0("i32.clz", Instr.IClz(IntWidth.I32)) |
+        op0("i32.ctz", Instr.ICtz(IntWidth.I32)) |
+        op0("i32.popcnt", Instr.IPopCnt(IntWidth.I32)) |
+        op0("i32.add", Instr.IAdd(IntWidth.I32)) |
+        op0("i32.sub", Instr.ISub(IntWidth.I32)) |
+        op0("i32.mul", Instr.IMul(IntWidth.I32)) |
+        op0("i32.div_s", Instr.IDiv(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.div_u", Instr.IDiv(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.rem_s", Instr.IRem(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.rem_u", Instr.IRem(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.and", Instr.IAnd(IntWidth.I32)) |
+        op0("i32.or", Instr.IOr(IntWidth.I32)) |
+        op0("i32.xor", Instr.IXor(IntWidth.I32)) |
+        op0("i32.shl", Instr.IShl(IntWidth.I32)) |
+        op0("i32.shr_s", Instr.IShr(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.shr_u", Instr.IShr(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.rotl", Instr.IRotL(IntWidth.I32)) |
+        op0("i32.rotr", Instr.IRotR(IntWidth.I32)) |
+        op0("i64.clz", Instr.IClz(IntWidth.I64)) |
+        op0("i64.ctz", Instr.ICtz(IntWidth.I64)) |
+        op0("i64.popcnt", Instr.IPopCnt(IntWidth.I64)) |
+        op0("i64.add", Instr.IAdd(IntWidth.I64)) |
+        op0("i64.sub", Instr.ISub(IntWidth.I64)) |
+        op0("i64.mul", Instr.IMul(IntWidth.I64)) |
+        op0("i64.div_s", Instr.IDiv(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.div_u", Instr.IDiv(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.rem_s", Instr.IRem(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.rem_u", Instr.IRem(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.and", Instr.IAnd(IntWidth.I64)) |
+        op0("i64.or", Instr.IOr(IntWidth.I64)) |
+        op0("i64.xor", Instr.IXor(IntWidth.I64)) |
+        op0("i64.shl", Instr.IShl(IntWidth.I64)) |
+        op0("i64.shr_s", Instr.IShr(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.shr_u", Instr.IShr(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.rotl", Instr.IRotL(IntWidth.I64)) |
+        op0("i64.rotr", Instr.IRotR(IntWidth.I64)) |
+        op0("f32.abs", Instr.FAbs(FloatWidth.F32)) |
+        op0("f32.neg", Instr.FNeg(FloatWidth.F32)) |
+        op0("f32.ceil", Instr.FCeil(FloatWidth.F32)) |
+        op0("f32.floor", Instr.FFloor(FloatWidth.F32)) |
+        op0("f32.trunc", Instr.FTrunc(FloatWidth.F32)) |
+        op0("f32.nearest", Instr.FNearest(FloatWidth.F32)) |
+        op0("f32.sqrt", Instr.FSqrt(FloatWidth.F32)) |
+        op0("f32.add", Instr.FAdd(FloatWidth.F32)) |
+        op0("f32.sub", Instr.FSub(FloatWidth.F32)) |
+        op0("f32.mul", Instr.FMul(FloatWidth.F32)) |
+        op0("f32.div", Instr.FDiv(FloatWidth.F32)) |
+        op0("f32.min", Instr.FMin(FloatWidth.F32)) |
+        op0("f32.max", Instr.FMax(FloatWidth.F32)) |
+        op0("f32.copysign", Instr.FCopySign(FloatWidth.F32)) |
+        op0("f64.abs", Instr.FAbs(FloatWidth.F64)) |
+        op0("f64.neg", Instr.FNeg(FloatWidth.F64)) |
+        op0("f64.ceil", Instr.FCeil(FloatWidth.F64)) |
+        op0("f64.floor", Instr.FFloor(FloatWidth.F64)) |
+        op0("f64.trunc", Instr.FTrunc(FloatWidth.F64)) |
+        op0("f64.nearest", Instr.FNearest(FloatWidth.F64)) |
+        op0("f64.sqrt", Instr.FSqrt(FloatWidth.F64)) |
+        op0("f64.add", Instr.FAdd(FloatWidth.F64)) |
+        op0("f64.sub", Instr.FSub(FloatWidth.F64)) |
+        op0("f64.mul", Instr.FMul(FloatWidth.F64)) |
+        op0("f64.div", Instr.FDiv(FloatWidth.F64)) |
+        op0("f64.min", Instr.FMin(FloatWidth.F64)) |
+        op0("f64.max", Instr.FMax(FloatWidth.F64)) |
+        op0("f64.copysign", Instr.FCopySign(FloatWidth.F64)) |
+        op0("i32.eqz", Instr.IEqz(IntWidth.I32)) |
+        op0("i32.eq", Instr.IEq(IntWidth.I32)) |
+        op0("i32.ne", Instr.INe(IntWidth.I32)) |
+        op0("i32.lt_s", Instr.ILt(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.lt_u", Instr.ILt(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.gt_s", Instr.IGt(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.gt_u", Instr.IGt(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.le_s", Instr.ILe(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.le_u", Instr.ILe(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i32.ge_s", Instr.IGe(IntWidth.I32, Signedness.Signed)) |
+        op0("i32.ge_u", Instr.IGe(IntWidth.I32, Signedness.Unsigned)) |
+        op0("i64.eq", Instr.IEq(IntWidth.I64)) |
+        op0("i64.ne", Instr.INe(IntWidth.I64)) |
+        op0("i64.lt_s", Instr.ILt(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.lt_u", Instr.ILt(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.gt_s", Instr.IGt(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.gt_u", Instr.IGt(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.le_s", Instr.ILe(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.le_u", Instr.ILe(IntWidth.I64, Signedness.Unsigned)) |
+        op0("i64.ge_s", Instr.IGe(IntWidth.I64, Signedness.Signed)) |
+        op0("i64.ge_u", Instr.IGe(IntWidth.I64, Signedness.Unsigned)) |
+        op0("f32.eq", Instr.FEq(FloatWidth.F32)) |
+        op0("f32.ne", Instr.FNe(FloatWidth.F32)) |
+        op0("f32.lt", Instr.FLt(FloatWidth.F32)) |
+        op0("f32.gt", Instr.FGt(FloatWidth.F32)) |
+        op0("f32.le", Instr.FLe(FloatWidth.F32)) |
+        op0("f32.ge", Instr.FGe(FloatWidth.F32)) |
+        op0("f64.eq", Instr.FEq(FloatWidth.F64)) |
+        op0("f64.ne", Instr.FNe(FloatWidth.F64)) |
+        op0("f64.lt", Instr.FLt(FloatWidth.F64)) |
+        op0("f64.gt", Instr.FGt(FloatWidth.F64)) |
+        op0("f64.le", Instr.FLe(FloatWidth.F64)) |
+        op0("f64.ge", Instr.FGe(FloatWidth.F64))
+  }
+
+  private[wasm] def plaininstr(using IdentifierContext): TextSyntax[Instr] =
+    Instructions.control |
+      Instructions.ref |
+      Instructions.parametric |
+      Instructions.table |
+      Instructions.memory |
+      Instructions.numeric
     // | TODO
 }

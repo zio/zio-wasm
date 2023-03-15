@@ -9,10 +9,11 @@ object TextSpec extends ZIOSpecDefault {
   override def spec: Spec[Any, Any] =
     suite("Text syntax")(
       test("debug") {
-        val r = Text.functype.printString(
-          FuncType(ResultType(Chunk(NumType.I32, NumType.I64)), ResultType(Chunk(VecType.V128)))
+        given ctx: Text.IdentifierContext = Text.IdentifierContext.empty
+        val r = Text.plaininstr.printString(
+          Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned)
         )
-        val v = Text.functype.parseString("(func (param i32 i32 i32 i32 i32) (result i32)))")
+        val v = Text.plaininstr.parseString("memory.init 0")
         println(r)
         println(v)
         assertCompletes

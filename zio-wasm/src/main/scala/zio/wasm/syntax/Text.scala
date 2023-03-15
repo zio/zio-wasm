@@ -125,7 +125,7 @@ object Text {
   private[wasm] val space: TextSyntax[Unit] =
     (Syntax.char(' ').mapError(_ => SyntaxError.UnexpectedByte) |
       format |
-      comment).*.unit(Chunk.single(' ')) ?? "space"
+      comment).*.unit(Chunk.single(())) ?? "space"
 
   private[wasm] val space0: TextSyntax[Unit] = space.asParser <=> Printer.unit
 
@@ -226,21 +226,31 @@ object Text {
     },
     n => if (n >= 0) (None, n) else (Some('-'), -n)
   ) ?? "s64"
+  private[wasm] val i64                   = s64 | u64 ?? "i64"
 
   private def longToInt(value: Long): Either[SyntaxError, Int] =
     if (value >= Int.MinValue && value <= Int.MaxValue) Right(value.toInt)
     else Left(SyntaxError.Int32TooLarge)
 
-  private[wasm] val u32: TextSyntax[Int] =
-    ((keyword("0x") ~> hexnum) | num).transformEither(longToInt, i => Right(i.toLong)) ?? "u32"
-  private[wasm] val s32: TextSyntax[Int] = (sign.? ~ u32).transform(
-    {
-      case (None, n)      => n
-      case (Some('-'), n) => -n
-      case (Some('+'), n) => n
-    },
-    n => if (n >= 0) (None, n) else (Some('-'), -n)
-  ) ?? "s32"
+  private[wasm] val u32: TextSyntax[Int] = u64.transformEither(longToInt, i => Right(i.toLong)) ?? "u32"
+  private[wasm] val s32: TextSyntax[Int] = s64.transformEither(longToInt, i => Right(i.toLong)) ?? "s32"
+  private[wasm] val i32                  = s32 | u32 ?? "i32"
+
+  private def longToByte(value: Long): Either[SyntaxError, Byte] =
+    if (value >= Byte.MinValue && value <= Byte.MaxValue) Right(value.toByte)
+    else Left(SyntaxError.Int8TooLarge)
+
+  private[wasm] val u8: TextSyntax[Byte] = u64.transformEither(longToByte, i => Right(i.toLong)) ?? "u8"
+  private[wasm] val s8: TextSyntax[Byte] = s64.transformEither(longToByte, i => Right(i.toLong)) ?? "s8"
+  private[wasm] val i8                   = s8 | u8 ?? "i8"
+
+  private def longToShort(value: Long): Either[SyntaxError, Short] =
+    if (value >= Short.MinValue && value <= Short.MaxValue) Right(value.toShort)
+    else Left(SyntaxError.Int16TooLarge)
+
+  private[wasm] val u16: TextSyntax[Short] = u64.transformEither(longToShort, i => Right(i.toLong)) ?? "u16"
+  private[wasm] val s16: TextSyntax[Short] = s64.transformEither(longToShort, i => Right(i.toLong)) ?? "s16"
+  private[wasm] val i16                    = s16 | u16 ?? "i16"
 
   private def decToFrac(digits: Chunk[Long]): Double =
     digits.foldRight(BigDecimal(0.0))((acc, d) => (d + acc) / 10.0).toDouble
@@ -303,6 +313,80 @@ object Text {
     },
     (n: Float) => if (n >= 0) (None, n) else (Some('-'), -n)
   ) ?? "f32"
+
+  private def int128FromI8x16(values: Chunk[Byte]): Either[SyntaxError, Int128]  =
+    if (values.length == 16)
+      Right(
+        Int128.i8x16(
+          values(0),
+          values(1),
+          values(2),
+          values(3),
+          values(4),
+          values(5),
+          values(6),
+          values(7),
+          values(8),
+          values(9),
+          values(10),
+          values(11),
+          values(12),
+          values(13),
+          values(14),
+          values(15)
+        )
+      )
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+  private def int128ToI8x16(value: Int128): Either[SyntaxError, Chunk[Byte]]     = {
+    val (b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16) = value.toI8x16
+    Right(Chunk(b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16))
+  }
+  private def int128FromI16x8(values: Chunk[Short]): Either[SyntaxError, Int128] =
+    if (values.length == 8)
+      Right(Int128.i16x8(values(0), values(1), values(2), values(3), values(4), values(5), values(6), values(7)))
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+  private def int128ToI16x8(value: Int128): Either[SyntaxError, Chunk[Short]]    = {
+    val (s1, s2, s3, s4, s5, s6, s7, s8) = value.toI16x8
+    Right(Chunk(s1, s2, s3, s4, s5, s6, s7, s8))
+  }
+  private def int128FromI32x4(values: Chunk[Int]): Either[SyntaxError, Int128]   =
+    if (values.length == 4) Right(Int128.i32x4(values(0), values(1), values(2), values(3)))
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+
+  private def int128ToI32x4(value: Int128): Either[SyntaxError, Chunk[Int]]     = {
+    val (i1, i2, i3, i4) = value.toI32x4
+    Right(Chunk(i1, i2, i3, i4))
+  }
+  private def int128FromI64x2(values: Chunk[Long]): Either[SyntaxError, Int128] =
+    if (values.length == 2) Right(Int128.i64x2(values(0), values(1)))
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+
+  private def int128ToI64x2(value: Int128): Either[SyntaxError, Chunk[Long]]      = {
+    val (l1, l2) = value.toI64x2
+    Right(Chunk(l1, l2))
+  }
+  private def int128FromF32x4(values: Chunk[Float]): Either[SyntaxError, Int128]  =
+    if (values.length == 4) Right(Int128.f32x4(values(0), values(1), values(2), values(3)))
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+  private def int128ToF32x4(value: Int128): Either[SyntaxError, Chunk[Float]]     = {
+    val (f1, f2, f3, f4) = value.toF32x4
+    Right(Chunk(f1, f2, f3, f4))
+  }
+  private def int128FromF64x2(values: Chunk[Double]): Either[SyntaxError, Int128] =
+    if (values.length == 2) Right(Int128.f64x2(values(0), values(1)))
+    else Left(SyntaxError.UnexpectedNumberOfIntegers)
+  private def int128ToF64x2(value: Int128): Either[SyntaxError, Chunk[Double]]    = {
+    val (d1, d2) = value.toF64x2
+    Right(Chunk(d1, d2))
+  }
+
+  private[wasm] val i128: TextSyntax[Int128] =
+    (keyword("i8x16") ~ space ~ i8.repeatWithSep(space)).transformEither(int128FromI8x16, int128ToI8x16) |
+      (keyword("i16x8") ~ space ~ i16.repeatWithSep(space)).transformEither(int128FromI16x8, int128ToI16x8) |
+      (keyword("i32x4") ~ space ~ i32.repeatWithSep(space)).transformEither(int128FromI32x4, int128ToI32x4) |
+      (keyword("i64x2") ~ space ~ i64.repeatWithSep(space)).transformEither(int128FromI64x2, int128ToI64x2) |
+      (keyword("f32x4") ~ space ~ f32.repeatWithSep(space)).transformEither(int128FromF32x4, int128ToF32x4) |
+      (keyword("f64x2") ~ space ~ f64.repeatWithSep(space)).transformEither(int128FromF64x2, int128ToF64x2) ?? "i128"
 
   private[wasm] val stringchar =
     (Syntax.charNotIn((0x00.toChar to 0x1f.toChar) ++ Seq(0x7f.toChar, '\\', '"'): _*) |
@@ -462,7 +546,9 @@ object Text {
       u32.transform(DataIdx.fromInt, _.toInt)) ?? "dataidx"
 
   private[wasm] def typeuse(using ctx: IdentifierContext): TextSyntax[TypeIdx] =
-    ??? // TODO
+    Syntax.fail(SyntaxError.UnexpectedByte).asInstanceOf[TextSyntax[TypeIdx]] // TODO
+
+  private[wasm] val laneidx: TextSyntax[LaneIdx] = u8.transform(LaneIdx.fromByte, _.toByte) ?? "laneidx"
 
   private[wasm] val offset = keyword("offset=") ~> u32 ?? "offset"
   private[wasm] val align  = keyword("align=") ~> u32 ?? "align"
@@ -516,6 +602,19 @@ object Text {
         SyntaxError.InvalidInstruction
       )
 
+    private def op2Custom[I <: Instr: ClassTag, A, B](
+        name: String,
+        p1: TextSyntax[A],
+        p2: TextSyntax[B],
+        create: (A, B) => I,
+        extract: PartialFunction[Instr, (A, B)]
+    ): TextSyntax[Instr] =
+      (keyword(name) ~> space ~> p1 ~ space ~ p2).transformTo(
+        create(_, _),
+        extract,
+        SyntaxError.InvalidInstruction
+      )
+
     def control(using IdentifierContext) =
       op0("unreachable", Instr.Unreachable) |
         op0("nop", Instr.Nop) |
@@ -544,8 +643,8 @@ object Text {
         op1[Instr.RefFunc, FuncIdx]("ref.func", funcidx, Instr.RefFunc.apply, _.idx)
 
     val parametric =
-      op0("drop", Instr.Drop)
-      op1[Instr.Select, Option[Chunk[ValType]]]("select", result.?, Instr.Select.apply, _.types)
+      op0("drop", Instr.Drop) |
+        op1[Instr.Select, Option[Chunk[ValType]]]("select", result.?, Instr.Select.apply, _.types)
 
     def table(using IdentifierContext) =
       op1[Instr.LocalGet, LocalIdx]("local.get", localidx, Instr.LocalGet.apply, _.idx) |
@@ -857,6 +956,370 @@ object Text {
         op0("f64.gt", Instr.FGt(FloatWidth.F64)) |
         op0("f64.le", Instr.FLe(FloatWidth.F64)) |
         op0("f64.ge", Instr.FGe(FloatWidth.F64))
+
+    val numericConversions =
+      op0("i32.wrap_i64", Instr.I32WrapI64) |
+        op0("i32.trunc_f32_s", Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Signed)) |
+        op0("i32.trunc_f32_u", Instr.ITruncF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned)) |
+        op0("i32.trunc_f64_s", Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Signed)) |
+        op0("i32.trunc_f64_u", Instr.ITruncF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned)) |
+        op0("i32.trunc_sat_f32_s", Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Signed)) |
+        op0("i32.trunc_sat_f32_u", Instr.ITruncSatF(IntWidth.I32, FloatWidth.F32, Signedness.Unsigned)) |
+        op0("i32.trunc_sat_f64_s", Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Signed)) |
+        op0("i32.trunc_sat_f64_u", Instr.ITruncSatF(IntWidth.I32, FloatWidth.F64, Signedness.Unsigned)) |
+        op0("i64.extend_i32_s", Instr.I64ExtendI32(Signedness.Signed)) |
+        op0("i64.extend_i32_u", Instr.I64ExtendI32(Signedness.Unsigned)) |
+        op0("i64.trunc_f32_s", Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Signed)) |
+        op0("i64.trunc_f32_u", Instr.ITruncF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned)) |
+        op0("i64.trunc_f64_s", Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Signed)) |
+        op0("i64.trunc_f64_u", Instr.ITruncF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned)) |
+        op0("i64.trunc_sat_f32_s", Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Signed)) |
+        op0("i64.trunc_sat_f32_u", Instr.ITruncSatF(IntWidth.I64, FloatWidth.F32, Signedness.Unsigned)) |
+        op0("i64.trunc_sat_f64_s", Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Signed)) |
+        op0("i64.trunc_sat_f64_u", Instr.ITruncSatF(IntWidth.I64, FloatWidth.F64, Signedness.Unsigned)) |
+        op0("f32.convert_i32_s", Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Signed)) |
+        op0("f32.convert_i32_u", Instr.FConvertI(FloatWidth.F32, IntWidth.I32, Signedness.Unsigned)) |
+        op0("f32.convert_i64_s", Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Signed)) |
+        op0("f32.convert_i64_u", Instr.FConvertI(FloatWidth.F32, IntWidth.I64, Signedness.Unsigned)) |
+        op0("f32.demote_f64", Instr.F32DemoteF64) |
+        op0("f64.convert_i32_s", Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Signed)) |
+        op0("f64.convert_i32_u", Instr.FConvertI(FloatWidth.F64, IntWidth.I32, Signedness.Unsigned)) |
+        op0("f64.convert_i64_s", Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Signed)) |
+        op0("f64.convert_i64_u", Instr.FConvertI(FloatWidth.F64, IntWidth.I64, Signedness.Unsigned)) |
+        op0("f64.promote_f32", Instr.F64PromoteF32) |
+        op0("i32.reinterpret_f32", Instr.IReinterpretF(IntWidth.I32)) |
+        op0("i64.reinterpret_f64", Instr.IReinterpretF(IntWidth.I64)) |
+        op0("f32.reinterpret_i32", Instr.FReinterpretI(FloatWidth.F32)) |
+        op0("f64.reinterpret_i64", Instr.FReinterpretI(FloatWidth.F64)) |
+        op0("i32.extend8_s", Instr.IExtend8S(IntWidth.I32)) |
+        op0("i32.extend16_s", Instr.IExtend16S(IntWidth.I32)) |
+        op0("i64.extend8_s", Instr.IExtend8S(IntWidth.I64)) |
+        op0("i64.extend16_s", Instr.IExtend16S(IntWidth.I64)) |
+        op0("i64.extend32_s", Instr.I64Extend32S)
+
+    val vectorLoadStore =
+      op1Custom[Instr.Load, MemArg](
+        "v128.load",
+        memarg,
+        Instr.Load(VecType.V128, _),
+        { case Instr.Load(VecType.V128, memarg) => memarg }
+      ) |
+        op1Custom[Instr.V128Load8x8, MemArg](
+          "v128.load8x8_s",
+          memarg,
+          Instr.V128Load8x8(Signedness.Signed, _),
+          { case Instr.V128Load8x8(Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128Load8x8, MemArg](
+          "v128.load8x8_u",
+          memarg,
+          Instr.V128Load8x8(Signedness.Unsigned, _),
+          { case Instr.V128Load8x8(Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128Load16x4, MemArg](
+          "v128.load16x4_s",
+          memarg,
+          Instr.V128Load16x4(Signedness.Signed, _),
+          { case Instr.V128Load16x4(Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128Load16x4, MemArg](
+          "v128.load16x4_u",
+          memarg,
+          Instr.V128Load16x4(Signedness.Unsigned, _),
+          { case Instr.V128Load16x4(Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128Load32x2, MemArg](
+          "v128.load32x2_s",
+          memarg,
+          Instr.V128Load32x2(Signedness.Signed, _),
+          { case Instr.V128Load32x2(Signedness.Signed, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128Load32x2, MemArg](
+          "v128.load32x2_u",
+          memarg,
+          Instr.V128Load32x2(Signedness.Unsigned, _),
+          { case Instr.V128Load32x2(Signedness.Unsigned, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128LoadSplat, MemArg](
+          "v128.load8_splat",
+          memarg,
+          Instr.V128LoadSplat(VectorLoadShape.WW8, _),
+          { case Instr.V128LoadSplat(VectorLoadShape.WW8, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128LoadSplat, MemArg](
+          "v128.load16_splat",
+          memarg,
+          Instr.V128LoadSplat(VectorLoadShape.WW16, _),
+          { case Instr.V128LoadSplat(VectorLoadShape.WW16, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128LoadSplat, MemArg](
+          "v128.load32_splat",
+          memarg,
+          Instr.V128LoadSplat(VectorLoadShape.WW32, _),
+          { case Instr.V128LoadSplat(VectorLoadShape.WW32, memarg) => memarg }
+        ) |
+        op1Custom[Instr.V128LoadSplat, MemArg](
+          "v128.load64_splat",
+          memarg,
+          Instr.V128LoadSplat(VectorLoadShape.WW64, _),
+          { case Instr.V128LoadSplat(VectorLoadShape.WW64, memarg) => memarg }
+        ) |
+        op1[Instr.V128Load32Zero, MemArg]("v128.load32_zero", memarg, Instr.V128Load32Zero.apply, _.memArg) |
+        op1[Instr.V128Load64Zero, MemArg]("v128.load64_zero", memarg, Instr.V128Load64Zero.apply, _.memArg) |
+        op1Custom[Instr.Store, MemArg](
+          "v128.store",
+          memarg,
+          Instr.Store(VecType.V128, _),
+          { case Instr.Store(VecType.V128, memarg) => memarg }
+        ) |
+        op2Custom[Instr.V128LoadLane, MemArg, LaneIdx](
+          "v128.load8_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128LoadLane(VectorLoadShape.WW8, memarg, laneidx),
+          { case Instr.V128LoadLane(VectorLoadShape.WW8, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128LoadLane, MemArg, LaneIdx](
+          "v128.load16_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128LoadLane(VectorLoadShape.WW16, memarg, laneidx),
+          { case Instr.V128LoadLane(VectorLoadShape.WW16, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128LoadLane, MemArg, LaneIdx](
+          "v128.load32_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128LoadLane(VectorLoadShape.WW32, memarg, laneidx),
+          { case Instr.V128LoadLane(VectorLoadShape.WW32, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128LoadLane, MemArg, LaneIdx](
+          "v128.load64_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128LoadLane(VectorLoadShape.WW64, memarg, laneidx),
+          { case Instr.V128LoadLane(VectorLoadShape.WW64, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128StoreLane, MemArg, LaneIdx](
+          "v128.store8_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128StoreLane(VectorLoadShape.WW8, memarg, laneidx),
+          { case Instr.V128StoreLane(VectorLoadShape.WW8, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128StoreLane, MemArg, LaneIdx](
+          "v128.store16_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128StoreLane(VectorLoadShape.WW16, memarg, laneidx),
+          { case Instr.V128StoreLane(VectorLoadShape.WW16, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128StoreLane, MemArg, LaneIdx](
+          "v128.store32_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128StoreLane(VectorLoadShape.WW32, memarg, laneidx),
+          { case Instr.V128StoreLane(VectorLoadShape.WW32, memarg, laneidx) => (memarg, laneidx) }
+        ) |
+        op2Custom[Instr.V128StoreLane, MemArg, LaneIdx](
+          "v128.store64_lane",
+          memarg,
+          laneidx,
+          (memarg, laneidx) => Instr.V128StoreLane(VectorLoadShape.WW64, memarg, laneidx),
+          { case Instr.V128StoreLane(VectorLoadShape.WW64, memarg, laneidx) => (memarg, laneidx) }
+        )
+
+    val vector1 =
+      op1[Instr.V128Const, Int128]("v128.const", i128, Instr.V128Const.apply, _.value) |
+        (keyword(
+          "i8x16.shuffle"
+        ) ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx ~ space ~ laneidx)
+          .transformTo(
+            Instr.VI8x16Shuffle.apply,
+            { case i: Instr.VI8x16Shuffle =>
+              (
+                i.laneIdx0,
+                i.laneIdx1,
+                i.laneIdx2,
+                i.laneIdx3,
+                i.laneIdx4,
+                i.laneIdx5,
+                i.laneIdx6,
+                i.laneIdx7,
+                i.laneIdx8,
+                i.laneIdx9,
+                i.laneIdx10,
+                i.laneIdx11,
+                i.laneIdx12,
+                i.laneIdx13,
+                i.laneIdx14,
+                i.laneIdx15
+              )
+            },
+            SyntaxError.InvalidInstruction
+          ) |
+        op0("i8x16.swizzle", Instr.VI18x16Swizzle) |
+        op0("i8x16.splat", Instr.VSplat(IShape.I8x16)) |
+        op0("i16x8.splat", Instr.VSplat(IShape.I16x8)) |
+        op0("i32x4.splat", Instr.VSplat(IShape.I32x4)) |
+        op0("i64x2.splat", Instr.VSplat(IShape.I64x2)) |
+        op0("f32x4.splat", Instr.VSplat(FShape.F32x4)) |
+        op0("f64x2.splat", Instr.VSplat(FShape.F64x2))
+
+    val vector2 =
+      op1Custom[Instr.VI8x16ExtractLane, LaneIdx](
+        "i8x16.extract_lane_s",
+        laneidx,
+        Instr.VI8x16ExtractLane(Signedness.Signed, _),
+        { case Instr.VI8x16ExtractLane(Signedness.Signed, laneidx) => laneidx }
+      ) |
+        op1Custom[Instr.VI8x16ExtractLane, LaneIdx](
+          "i8x16.extract_lane_u",
+          laneidx,
+          Instr.VI8x16ExtractLane(Signedness.Unsigned, _),
+          { case Instr.VI8x16ExtractLane(Signedness.Unsigned, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "i8x16.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(IShape.I8x16, _),
+          { case Instr.VReplaceLane(IShape.I8x16, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VI16x8ExtractLane, LaneIdx](
+          "i16x8.extract_lane_s",
+          laneidx,
+          Instr.VI16x8ExtractLane(Signedness.Signed, _),
+          { case Instr.VI16x8ExtractLane(Signedness.Signed, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VI16x8ExtractLane, LaneIdx](
+          "i16x8.extract_lane_u",
+          laneidx,
+          Instr.VI16x8ExtractLane(Signedness.Unsigned, _),
+          { case Instr.VI16x8ExtractLane(Signedness.Unsigned, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "i16x8.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(IShape.I16x8, _),
+          { case Instr.VReplaceLane(IShape.I16x8, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VI32x4ExtractLane, LaneIdx](
+          "i32x4.extract_lane",
+          laneidx,
+          Instr.VI32x4ExtractLane(_),
+          { case Instr.VI32x4ExtractLane(laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "i32x4.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(IShape.I32x4, _),
+          { case Instr.VReplaceLane(IShape.I32x4, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VI64x2ExtractLane, LaneIdx](
+          "i64x2.extract_lane",
+          laneidx,
+          Instr.VI64x2ExtractLane(_),
+          { case Instr.VI64x2ExtractLane(laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "i64x2.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(IShape.I64x2, _),
+          { case Instr.VReplaceLane(IShape.I64x2, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VFExtractLane, LaneIdx](
+          "f32x4.extract_lane",
+          laneidx,
+          Instr.VFExtractLane(FShape.F32x4, _),
+          { case Instr.VFExtractLane(FShape.F32x4, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "f32x4.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(FShape.F32x4, _),
+          { case Instr.VReplaceLane(FShape.F32x4, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VFExtractLane, LaneIdx](
+          "f64x2.extract_lane",
+          laneidx,
+          Instr.VFExtractLane(FShape.F64x2, _),
+          { case Instr.VFExtractLane(FShape.F64x2, laneidx) => laneidx }
+        ) |
+        op1Custom[Instr.VReplaceLane, LaneIdx](
+          "f64x2.replace_lane",
+          laneidx,
+          Instr.VReplaceLane(FShape.F64x2, _),
+          { case Instr.VReplaceLane(FShape.F64x2, laneidx) => laneidx }
+        )
+
+    val vectorCompareI8x16 =
+      op0("i8x16.eq", Instr.VIEq(IShape.I8x16)) |
+        op0("i8x16.ne", Instr.VINe(IShape.I8x16)) |
+        op0("i8x16.lt_s", Instr.VILt(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.lt_u", Instr.VILt(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.le_s", Instr.VILe(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.le_u", Instr.VILe(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.gt_s", Instr.VIGt(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.gt_u", Instr.VIGt(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.ge_s", Instr.VIGe(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.ge_u", Instr.VIGe(IShape.I8x16, Signedness.Unsigned))
+
+    val vectorCompareI16x8 =
+      op0("i16x8.eq", Instr.VIEq(IShape.I16x8)) |
+        op0("i16x8.ne", Instr.VINe(IShape.I16x8)) |
+        op0("i16x8.lt_s", Instr.VILt(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.lt_u", Instr.VILt(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.le_s", Instr.VILe(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.le_u", Instr.VILe(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.gt_s", Instr.VIGt(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.gt_u", Instr.VIGt(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.ge_s", Instr.VIGe(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.ge_u", Instr.VIGe(IShape.I16x8, Signedness.Unsigned))
+
+    val vectorCompareI32x4 =
+      op0("i32x4.eq", Instr.VIEq(IShape.I32x4)) |
+        op0("i32x4.ne", Instr.VINe(IShape.I32x4)) |
+        op0("i32x4.lt_s", Instr.VILt(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.lt_u", Instr.VILt(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.le_s", Instr.VILe(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.le_u", Instr.VILe(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.gt_s", Instr.VIGt(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.gt_u", Instr.VIGt(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.ge_s", Instr.VIGe(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.ge_u", Instr.VIGe(IShape.I32x4, Signedness.Unsigned))
+
+    val vectorCompareI64x2 =
+      op0("i64x2.eq", Instr.VIEq(IShape.I64x2)) |
+        op0("i64x2.ne", Instr.VINe(IShape.I64x2)) |
+        op0("i64x2.lt", Instr.VI64x2Lt) |
+        op0("i64x2.le", Instr.VI64x2Le) |
+        op0("i64x2.gt", Instr.VI64x2Gt) |
+        op0("i64x2.ge", Instr.VI64x2Ge)
+
+    val vectorCompareF32x4 =
+      op0("f32x4.eq", Instr.VFEq(FShape.F32x4)) |
+        op0("f32x4.ne", Instr.VFNe(FShape.F32x4)) |
+        op0("f32x4.lt", Instr.VFLt(FShape.F32x4)) |
+        op0("f32x4.le", Instr.VFLe(FShape.F32x4)) |
+        op0("f32x4.gt", Instr.VFGt(FShape.F32x4)) |
+        op0("f32x4.ge", Instr.VFGe(FShape.F32x4))
+
+    val vectorCompareF64x2 =
+      op0("f64x2.eq", Instr.VFEq(FShape.F64x2)) |
+        op0("f64x2.ne", Instr.VFNe(FShape.F64x2)) |
+        op0("f64x2.lt", Instr.VFLt(FShape.F64x2)) |
+        op0("f64x2.le", Instr.VFLe(FShape.F64x2)) |
+        op0("f64x2.gt", Instr.VFGt(FShape.F64x2)) |
+        op0("f64x2.ge", Instr.VFGe(FShape.F64x2))
+
+    val vectorBinary =
+      op0("v128.not", Instr.V128Not) |
+        op0("v128.and", Instr.V128And) |
+        op0("v128.andnot", Instr.V128AndNot) |
+        op0("v128.or", Instr.V128Or) |
+        op0("v128.xor", Instr.V128Xor) |
+        op0("v128.bitselect", Instr.V128Bitselect) |
+        op0("v128.any_true", Instr.V128AnyTrue)
   }
 
   private[wasm] def plaininstr(using IdentifierContext): TextSyntax[Instr] =
@@ -865,6 +1328,17 @@ object Text {
       Instructions.parametric |
       Instructions.table |
       Instructions.memory |
-      Instructions.numeric
+      Instructions.numeric |
+      Instructions.numericConversions |
+      Instructions.vectorLoadStore |
+      Instructions.vector1 |
+      Instructions.vector2 |
+      Instructions.vectorCompareI8x16 |
+      Instructions.vectorCompareI16x8 |
+      Instructions.vectorCompareI32x4 |
+      Instructions.vectorCompareI64x2 |
+      Instructions.vectorCompareF32x4 |
+      Instructions.vectorCompareF64x2 |
+      Instructions.vectorBinary
     // | TODO
 }

@@ -1,108 +1,14 @@
 package zio.wasm.syntax
 
-import zio.{Chunk, ChunkBuilder}
+import zio.{Chunk, ChunkBuilder, NonEmptyChunk}
 import zio.parser.*
-import zio.wasm.*
+import zio.wasm.{LabelIdx, *}
+import zio.wasm.syntax.Text.*
 
 import scala.reflect.ClassTag
 
-object Text {
+class Text(using ctx: IdentifierContext) {
   // TODO: clean up errors
-
-  val defaultExtension: String = ".wat"
-
-  type TextSyntax[A]  = Syntax[SyntaxError, Char, Char, A]
-  type TextParser[A]  = Parser[SyntaxError, Char, A]
-  type TextPrinter[A] = Printer[SyntaxError, Char, A]
-
-  type Id = Id.Id
-  object Id {
-    opaque type Id = String
-
-    def fromString(s: String): Id = s
-  }
-
-  final case class IdentifierContext(
-      types: Chunk[Option[Id]],
-      funcs: Chunk[Option[Id]],
-      tables: Chunk[Option[Id]],
-      mems: Chunk[Option[Id]],
-      globals: Chunk[Option[Id]],
-      elem: Chunk[Option[Id]],
-      data: Chunk[Option[Id]],
-      locals: Chunk[Option[Id]],
-      labels: Chunk[Option[Id]],
-      typedefs: Chunk[FuncType]
-  ) {
-    def lookupType(id: Id): Option[TypeIdx] =
-      types.zipWithIndex.collectFirst { case (Some(`id`), i) => TypeIdx.fromInt(i) }
-
-    def lookupTypeIdx(typeIdx: TypeIdx): Option[Id] =
-      types.lift(typeIdx.toInt).flatten
-
-    def lookupFunc(id: Id): Option[FuncIdx] =
-      funcs.zipWithIndex.collectFirst { case (Some(`id`), i) => FuncIdx.fromInt(i) }
-
-    def lookupFuncIdx(funcIdx: FuncIdx): Option[Id] =
-      funcs.lift(funcIdx.toInt).flatten
-
-    def lookupTable(id: Id): Option[TableIdx] =
-      tables.zipWithIndex.collectFirst { case (Some(`id`), i) => TableIdx.fromInt(i) }
-
-    def lookupTableIdx(tableIdx: TableIdx): Option[Id] =
-      tables.lift(tableIdx.toInt).flatten
-
-    def lookupMem(id: Id): Option[MemIdx] =
-      mems.zipWithIndex.collectFirst { case (Some(`id`), i) => MemIdx.fromInt(i) }
-
-    def lookupMemIdx(memIdx: MemIdx): Option[Id] =
-      mems.lift(memIdx.toInt).flatten
-
-    def lookupGlobal(id: Id): Option[GlobalIdx] =
-      globals.zipWithIndex.collectFirst { case (Some(`id`), i) => GlobalIdx.fromInt(i) }
-
-    def lookupGlobalIdx(globalIdx: GlobalIdx): Option[Id] =
-      globals.lift(globalIdx.toInt).flatten
-
-    def lookupElem(id: Id): Option[ElemIdx] =
-      elem.zipWithIndex.collectFirst { case (Some(`id`), i) => ElemIdx.fromInt(i) }
-
-    def lookupElemIdx(elemIdx: ElemIdx): Option[Id] =
-      elem.lift(elemIdx.toInt).flatten
-
-    def lookupData(id: Id): Option[DataIdx] =
-      data.zipWithIndex.collectFirst { case (Some(`id`), i) => DataIdx.fromInt(i) }
-
-    def lookupDataIdx(dataIdx: DataIdx): Option[Id] =
-      data.lift(dataIdx.toInt).flatten
-
-    def lookupLocal(id: Id): Option[LocalIdx] =
-      locals.zipWithIndex.collectFirst { case (Some(`id`), i) => LocalIdx.fromInt(i) }
-
-    def lookupLocalIdx(localIdx: LocalIdx): Option[Id] =
-      locals.lift(localIdx.toInt).flatten
-
-    def lookupLabel(id: Id): Option[LabelIdx] =
-      labels.zipWithIndex.collectFirst { case (Some(`id`), i) => LabelIdx.fromInt(i) }
-
-    def lookupLabelIdx(labelIdx: LabelIdx): Option[Id] =
-      labels.lift(labelIdx.toInt).flatten
-  }
-
-  object IdentifierContext {
-    val empty: IdentifierContext = IdentifierContext(
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty,
-      Chunk.empty
-    )
-  }
 
   private[wasm] val char   = Syntax.anyChar
   private[wasm] val source = char.*
@@ -482,70 +388,70 @@ object Text {
         SyntaxError.InvalidGlobalType
       )) ?? "globaltype"
 
-  private[wasm] def typeidx(using ctx: IdentifierContext) =
+  private[wasm] val typeidx =
     (id.transformEither(
       (id: Id) => ctx.lookupType(id).toRight(SyntaxError.InvalidId),
       (typeIdx: TypeIdx) => ctx.lookupTypeIdx(typeIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(TypeIdx.fromInt, _.toInt)) ?? "typeidx"
 
-  private[wasm] def funcidx(using ctx: IdentifierContext) =
+  private[wasm] val funcidx =
     (id.transformEither(
       (id: Id) => ctx.lookupFunc(id).toRight(SyntaxError.InvalidId),
       (funcIdx: FuncIdx) => ctx.lookupFuncIdx(funcIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(FuncIdx.fromInt, _.toInt)) ?? "funcidx"
 
-  private[wasm] def tableidx(using ctx: IdentifierContext) =
+  private[wasm] val tableidx =
     (id.transformEither(
       (id: Id) => ctx.lookupTable(id).toRight(SyntaxError.InvalidId),
       (tableIdx: TableIdx) => ctx.lookupTableIdx(tableIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(TableIdx.fromInt, _.toInt)) ?? "tableidx"
 
-  private[wasm] def memidx(using ctx: IdentifierContext) =
+  private[wasm] val memidx =
     (id.transformEither(
       (id: Id) => ctx.lookupMem(id).toRight(SyntaxError.InvalidId),
       (memIdx: MemIdx) => ctx.lookupMemIdx(memIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(MemIdx.fromInt, _.toInt)) ?? "memidx"
 
-  private[wasm] def globalidx(using ctx: IdentifierContext) =
+  private[wasm] val globalidx =
     (id.transformEither(
       (id: Id) => ctx.lookupGlobal(id).toRight(SyntaxError.InvalidId),
       (globalIdx: GlobalIdx) => ctx.lookupGlobalIdx(globalIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(GlobalIdx.fromInt, _.toInt)) ?? "globalidx"
 
-  private[wasm] def localidx(using ctx: IdentifierContext) =
+  private[wasm] val localidx =
     (id.transformEither(
       (id: Id) => ctx.lookupLocal(id).toRight(SyntaxError.InvalidId),
       (localIdx: LocalIdx) => ctx.lookupLocalIdx(localIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(LocalIdx.fromInt, _.toInt)) ?? "localidx"
 
-  private[wasm] def labelidx(using ctx: IdentifierContext) =
+  private[wasm] val labelidx =
     (id.transformEither(
       (id: Id) => ctx.lookupLabel(id).toRight(SyntaxError.InvalidId),
       (labelIdx: LabelIdx) => ctx.lookupLabelIdx(labelIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(LabelIdx.fromInt, _.toInt)) ?? "labelidx"
 
-  private[wasm] def elemidx(using ctx: IdentifierContext) =
+  private[wasm] val elemidx =
     (id.transformEither(
       (id: Id) => ctx.lookupElem(id).toRight(SyntaxError.InvalidId),
       (elemIdx: ElemIdx) => ctx.lookupElemIdx(elemIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(ElemIdx.fromInt, _.toInt)) ?? "elemidx"
 
-  private[wasm] def dataidx(using ctx: IdentifierContext) =
+  private[wasm] val dataidx =
     (id.transformEither(
       (id: Id) => ctx.lookupData(id).toRight(SyntaxError.InvalidId),
       (dataIdx: DataIdx) => ctx.lookupDataIdx(dataIdx).toRight(SyntaxError.InvalidId)
     ) |
       u32.transform(DataIdx.fromInt, _.toInt)) ?? "dataidx"
 
-  private[wasm] def typeuse(using ctx: IdentifierContext): TextSyntax[TypeIdx] =
+  private[wasm] val typeuse: TextSyntax[TypeIdx] =
     Syntax.fail(SyntaxError.UnexpectedByte).asInstanceOf[TextSyntax[TypeIdx]] // TODO
 
   private[wasm] val laneidx: TextSyntax[LaneIdx] = u8.transform(LaneIdx.fromByte, _.toByte) ?? "laneidx"
@@ -615,7 +521,7 @@ object Text {
         SyntaxError.InvalidInstruction
       )
 
-    def control(using IdentifierContext) =
+    val control =
       op0("unreachable", Instr.Unreachable) |
         op0("nop", Instr.Nop) |
         op1[Instr.Br, LabelIdx]("br", labelidx, Instr.Br.apply, _.labelIdx) |
@@ -637,7 +543,7 @@ object Text {
           i => (Some(i.tableIdx), i.typeIdx)
         )
 
-    def ref(using IdentifierContext) =
+    val ref =
       op1[Instr.RefNull, RefType]("ref.null", heaptype, Instr.RefNull.apply, _.refType) |
         op0("ref.is_null", Instr.RefIsNull) |
         op1[Instr.RefFunc, FuncIdx]("ref.func", funcidx, Instr.RefFunc.apply, _.idx)
@@ -646,7 +552,7 @@ object Text {
       op0("drop", Instr.Drop) |
         op1[Instr.Select, Option[Chunk[ValType]]]("select", result.?, Instr.Select.apply, _.types)
 
-    def table(using IdentifierContext) =
+    val table =
       op1[Instr.LocalGet, LocalIdx]("local.get", localidx, Instr.LocalGet.apply, _.idx) |
         op1[Instr.LocalSet, LocalIdx]("local.set", localidx, Instr.LocalSet.apply, _.idx) |
         op1[Instr.LocalTee, LocalIdx]("local.tee", localidx, Instr.LocalTee.apply, _.idx) |
@@ -698,7 +604,7 @@ object Text {
         ) |
         op1[Instr.ElemDrop, ElemIdx]("elem.drop", elemidx, Instr.ElemDrop.apply, _.idx)
 
-    def memory(using IdentifierContext) =
+    val memory =
       op1Custom[Instr.Load, MemArg](
         "i32.load",
         memarg,
@@ -1317,12 +1223,149 @@ object Text {
         op0("v128.and", Instr.V128And) |
         op0("v128.andnot", Instr.V128AndNot) |
         op0("v128.or", Instr.V128Or) |
-        op0("v128.xor", Instr.V128Xor) |
-        op0("v128.bitselect", Instr.V128Bitselect) |
+        op0("v128.xor", Instr.V128XOr) |
+        op0("v128.bitselect", Instr.V128BitSelect) |
         op0("v128.any_true", Instr.V128AnyTrue)
+
+    val vectorI8x16 =
+      op0("i8x16.abs", Instr.VIAbs(IShape.I8x16)) |
+        op0("i8x16.neg", Instr.VINeg(IShape.I8x16)) |
+        op0("i8x16.all_true", Instr.VIAllTrue(IShape.I8x16)) |
+        op0("i8x16.bitmask", Instr.VIBitMask(IShape.I8x16)) |
+        op0("i8x16.narrow_i16x8_s", Instr.VI8x16NarrowI16x8(Signedness.Signed)) |
+        op0("i8x16.narrow_i16x8_u", Instr.VI8x16NarrowI16x8(Signedness.Unsigned)) |
+        op0("i8x16.shl", Instr.VIShl(IShape.I8x16)) |
+        op0("i8x16.shr_s", Instr.VIShr(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.shr_u", Instr.VIShr(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.add", Instr.VIAdd(IShape.I8x16)) |
+        op0("i8x16.add_sat_s", Instr.VIAddSat(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.add_sat_u", Instr.VIAddSat(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.sub", Instr.VISub(IShape.I8x16)) |
+        op0("i8x16.sub_sat_s", Instr.VISubSat(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.sub_sat_u", Instr.VISubSat(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.min_s", Instr.VIMin(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.min_u", Instr.VIMin(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.max_s", Instr.VIMax(IShape.I8x16, Signedness.Signed)) |
+        op0("i8x16.max_u", Instr.VIMax(IShape.I8x16, Signedness.Unsigned)) |
+        op0("i8x16.avgr_u", Instr.VIAvgr(IShape.I8x16)) |
+        op0("i8x16.popcnt", Instr.VI8x16PopCnt)
+
+    val vectorI16x8 =
+      op0("i16x8.abs", Instr.VIAbs(IShape.I16x8)) |
+        op0("i16x8.neg", Instr.VINeg(IShape.I16x8)) |
+        op0("i16x8.all_true", Instr.VIAllTrue(IShape.I16x8)) |
+        op0("i16x8.bitmask", Instr.VIBitMask(IShape.I16x8)) |
+        op0("i16x8.narrow_i32x4_s", Instr.VI16x8NarrowI32x4(Signedness.Signed)) |
+        op0("i16x8.narrow_i32x4_u", Instr.VI16x8NarrowI32x4(Signedness.Unsigned)) |
+        op0("i16x8.shl", Instr.VIShl(IShape.I16x8)) |
+        op0("i16x8.shr_s", Instr.VIShr(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.shr_u", Instr.VIShr(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.add", Instr.VIAdd(IShape.I16x8)) |
+        op0("i16x8.add_sat_s", Instr.VIAddSat(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.add_sat_u", Instr.VIAddSat(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.sub", Instr.VISub(IShape.I16x8)) |
+        op0("i16x8.sub_sat_s", Instr.VISubSat(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.sub_sat_u", Instr.VISubSat(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.mul", Instr.VIMul(IShape.I16x8)) |
+        op0("i16x8.min_s", Instr.VIMin(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.min_u", Instr.VIMin(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.max_s", Instr.VIMax(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.max_u", Instr.VIMax(IShape.I16x8, Signedness.Unsigned)) |
+        op0("i16x8.avgr_u", Instr.VIAvgr(IShape.I16x8)) |
+        op0("i16x8.q15mulr_sat_s", Instr.VI16x8Q15MulrSat) |
+        op0("i16x8.extmul_low_i8x16_s", Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Signed)) |
+        op0("i16x8.extmul_low_i8x16_u", Instr.VIExtMul(IShape.I16x8, Half.Low, Signedness.Unsigned)) |
+        op0("i16x8.extmul_high_i8x16_s", Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Signed)) |
+        op0("i16x8.extmul_high_i8x16_u", Instr.VIExtMul(IShape.I16x8, Half.High, Signedness.Unsigned)) |
+        op0("i16x8.extadd_pairwise_i8x16_s", Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Signed)) |
+        op0("i16x8.extadd_pairwise_i8x16_u", Instr.VIExtAddPairwise(IShape.I16x8, Signedness.Unsigned))
+
+    val vectorI32x4 =
+      op0("i32x4.abs", Instr.VIAbs(IShape.I32x4)) |
+        op0("i32x4.neg", Instr.VINeg(IShape.I32x4)) |
+        op0("i32x4.all_true", Instr.VIAllTrue(IShape.I32x4)) |
+        op0("i32x4.bitmask", Instr.VIBitMask(IShape.I32x4)) |
+        op0("i32x4.extadd_pairwise_i16x8_s", Instr.VIExtAddPairwise(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.extend_low_i16x8_s", Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Signed)) |
+        op0("i32x4.extend_high_i16x8_s", Instr.VI32x4ExtendI16x8(Half.High, Signedness.Signed)) |
+        op0("i32x4.extend_low_i16x8_u", Instr.VI32x4ExtendI16x8(Half.Low, Signedness.Unsigned)) |
+        op0("i32x4.extend_high_i16x8_u", Instr.VI32x4ExtendI16x8(Half.High, Signedness.Unsigned)) |
+        op0("i32x4.shl", Instr.VIShl(IShape.I32x4)) |
+        op0("i32x4.shr_s", Instr.VIShr(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.shr_u", Instr.VIShr(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.add", Instr.VIAdd(IShape.I32x4)) |
+        op0("i32x4.sub", Instr.VISub(IShape.I32x4)) |
+        op0("i32x4.mul", Instr.VIMul(IShape.I32x4)) |
+        op0("i32x4.min_s", Instr.VIMin(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.min_u", Instr.VIMin(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.max_s", Instr.VIMax(IShape.I32x4, Signedness.Signed)) |
+        op0("i32x4.max_u", Instr.VIMax(IShape.I32x4, Signedness.Unsigned)) |
+        op0("i32x4.dot_i16x8_s", Instr.VI32x4DotI16x8) |
+        op0("i32x4.extmul_low_i16x8_s", Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Signed)) |
+        op0("i32x4.extmul_low_i16x8_u", Instr.VIExtMul(IShape.I32x4, Half.Low, Signedness.Unsigned)) |
+        op0("i32x4.extmul_high_i16x8_s", Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Signed)) |
+        op0("i32x4.extmul_high_i16x8_u", Instr.VIExtMul(IShape.I32x4, Half.High, Signedness.Unsigned))
+
+    val vectorI64x2 =
+      op0("i64x2.abs", Instr.VIAbs(IShape.I64x2)) |
+        op0("i64x2.neg", Instr.VINeg(IShape.I64x2)) |
+        op0("i64x2.all_true", Instr.VIAllTrue(IShape.I64x2)) |
+        op0("i64x2.bitmask", Instr.VIBitMask(IShape.I64x2)) |
+        op0("i64x2.extend_low_i32x4_s", Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Signed)) |
+        op0("i64x2.extend_high_i32x4_s", Instr.VI64x2ExtendI32x4(Half.High, Signedness.Signed)) |
+        op0("i64x2.extend_low_i32x4_u", Instr.VI64x2ExtendI32x4(Half.Low, Signedness.Unsigned)) |
+        op0("i64x2.extend_high_i32x4_u", Instr.VI64x2ExtendI32x4(Half.High, Signedness.Unsigned)) |
+        op0("i64x2.shl", Instr.VIShl(IShape.I64x2)) |
+        op0("i64x2.shr_s", Instr.VIShr(IShape.I64x2, Signedness.Signed)) |
+        op0("i64x2.shr_u", Instr.VIShr(IShape.I64x2, Signedness.Unsigned)) |
+        op0("i64x2.add", Instr.VIAdd(IShape.I64x2)) |
+        op0("i64x2.sub", Instr.VISub(IShape.I64x2)) |
+        op0("i64x2.mul", Instr.VIMul(IShape.I64x2)) |
+        op0("i64x2.extmul_low_i32x4_s", Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Signed)) |
+        op0("i64x2.extmul_low_i32x4_u", Instr.VIExtMul(IShape.I64x2, Half.Low, Signedness.Unsigned)) |
+        op0("i64x2.extmul_high_i32x4_s", Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Signed)) |
+        op0("i64x2.extmul_high_i32x4_u", Instr.VIExtMul(IShape.I64x2, Half.High, Signedness.Unsigned))
+
+    val vectorF32x4 =
+      op0("f32x4.abs", Instr.VFAbs(FShape.F32x4)) |
+        op0("f32x4.neg", Instr.VFNeg(FShape.F32x4)) |
+        op0("f32x4.sqrt", Instr.VFSqrt(FShape.F32x4)) |
+        op0("f32x4.add", Instr.VFAdd(FShape.F32x4)) |
+        op0("f32x4.sub", Instr.VFSub(FShape.F32x4)) |
+        op0("f32x4.mul", Instr.VFMul(FShape.F32x4)) |
+        op0("f32x4.div", Instr.VFDiv(FShape.F32x4)) |
+        op0("f32x4.min", Instr.VFMin(FShape.F32x4)) |
+        op0("f32x4.max", Instr.VFMax(FShape.F32x4)) |
+        op0("f32x4.pmin", Instr.VFPMin(FShape.F32x4)) |
+        op0("f32x4.pmax", Instr.VFPMax(FShape.F32x4))
+
+    val vectorF64x2 =
+      op0("f64x2.abs", Instr.VFAbs(FShape.F64x2)) |
+        op0("f64x2.neg", Instr.VFNeg(FShape.F64x2)) |
+        op0("f64x2.sqrt", Instr.VFSqrt(FShape.F64x2)) |
+        op0("f64x2.add", Instr.VFAdd(FShape.F64x2)) |
+        op0("f64x2.sub", Instr.VFSub(FShape.F64x2)) |
+        op0("f64x2.mul", Instr.VFMul(FShape.F64x2)) |
+        op0("f64x2.div", Instr.VFDiv(FShape.F64x2)) |
+        op0("f64x2.min", Instr.VFMin(FShape.F64x2)) |
+        op0("f64x2.max", Instr.VFMax(FShape.F64x2)) |
+        op0("f64x2.pmin", Instr.VFPMin(FShape.F64x2)) |
+        op0("f64x2.pmax", Instr.VFPMax(FShape.F64x2))
+
+    val vectorConversions =
+      op0("i32x4.trunc_sat_f32x4_s", Instr.VI32x4TruncSatF32x4(Signedness.Signed)) |
+        op0("i32x4.trunc_sat_f32x4_u", Instr.VI32x4TruncSatF32x4(Signedness.Unsigned)) |
+        op0("i32x4.trunc_sat_f64x2_s_zero", Instr.VI32x4TruncSatF64x2Zero(Signedness.Signed)) |
+        op0("i32x4.trunc_sat_f64x2_u_zero", Instr.VI32x4TruncSatF64x2Zero(Signedness.Unsigned)) |
+        op0("f32x4.convert_i32x4_s", Instr.VF32x4ConvertI32x4(Signedness.Signed)) |
+        op0("f32x4.convert_i32x4_u", Instr.VF32x4ConvertI32x4(Signedness.Unsigned)) |
+        op0("f64x2.convert_low_i32x4_s", Instr.VF64x2ConvertLowI32x4(Signedness.Signed)) |
+        op0("f64x2.convert_low_i32x4_u", Instr.VF64x2ConvertLowI32x4(Signedness.Unsigned)) |
+        op0("f32x4.demote_f64x2_zero", Instr.VF32x4DemoteF64x2Zero) |
+        op0("f64x2.promote_low_f32x4", Instr.VF64x2PromoteLowI32x4)
   }
 
-  private[wasm] def plaininstr(using IdentifierContext): TextSyntax[Instr] =
+  private[wasm] val plaininstr: TextSyntax[Instr] =
     Instructions.control |
       Instructions.ref |
       Instructions.parametric |
@@ -1339,6 +1382,133 @@ object Text {
       Instructions.vectorCompareI64x2 |
       Instructions.vectorCompareF32x4 |
       Instructions.vectorCompareF64x2 |
-      Instructions.vectorBinary
-    // | TODO
+      Instructions.vectorBinary |
+      Instructions.vectorI8x16 |
+      Instructions.vectorI16x8 |
+      Instructions.vectorI32x4 |
+      Instructions.vectorI64x2 |
+      Instructions.vectorF32x4 |
+      Instructions.vectorF64x2 |
+      Instructions.vectorConversions ?? "plaininstr"
+
+  private[wasm] lazy val foldedinstr: TextSyntax[NonEmptyChunk[Instr]] =
+    (lpar ~> plaininstr ~ space ~ foldedinstr.repeatWithSep0(space) <~ rpar)
+      .transform(
+        (instr, instrs) => NonEmptyChunk.fromChunk(instrs.flatten :+ instr).get,
+        (instrs: NonEmptyChunk[Instr]) => (instrs.last, instrs.init.map(NonEmptyChunk.single))
+      )
+
+  private[wasm] lazy val instr: TextSyntax[Instr] =
+    plaininstr ?? "instr" // TODO: blockinstr
+
+  private[wasm] lazy val expr: TextSyntax[Chunk[Instr]] =
+    (instr <+> foldedinstr)
+      .repeatWithSep0(space)
+      .transform(
+        parts => parts.map(_.left.map(NonEmptyChunk.single).merge).flatten,
+        instrs => instrs.map(i => Left(i))
+      ) ?? "expr"
+}
+
+object Text {
+  def apply(): Text = {
+    given ctx: IdentifierContext = IdentifierContext.empty
+    new Text
+  }
+
+  val defaultExtension: String = ".wat"
+
+  type TextSyntax[A]  = Syntax[SyntaxError, Char, Char, A]
+  type TextParser[A]  = Parser[SyntaxError, Char, A]
+  type TextPrinter[A] = Printer[SyntaxError, Char, A]
+
+  type Id = Id.Id
+
+  object Id {
+    opaque type Id = String
+
+    def fromString(s: String): Id = s
+  }
+
+  final case class IdentifierContext(
+      types: Chunk[Option[Id]],
+      funcs: Chunk[Option[Id]],
+      tables: Chunk[Option[Id]],
+      mems: Chunk[Option[Id]],
+      globals: Chunk[Option[Id]],
+      elem: Chunk[Option[Id]],
+      data: Chunk[Option[Id]],
+      locals: Chunk[Option[Id]],
+      labels: Chunk[Option[Id]],
+      typedefs: Chunk[FuncType]
+  ) {
+    def lookupType(id: Id): Option[TypeIdx] =
+      types.zipWithIndex.collectFirst { case (Some(`id`), i) => TypeIdx.fromInt(i) }
+
+    def lookupTypeIdx(typeIdx: TypeIdx): Option[Id] =
+      types.lift(typeIdx.toInt).flatten
+
+    def lookupFunc(id: Id): Option[FuncIdx] =
+      funcs.zipWithIndex.collectFirst { case (Some(`id`), i) => FuncIdx.fromInt(i) }
+
+    def lookupFuncIdx(funcIdx: FuncIdx): Option[Id] =
+      funcs.lift(funcIdx.toInt).flatten
+
+    def lookupTable(id: Id): Option[TableIdx] =
+      tables.zipWithIndex.collectFirst { case (Some(`id`), i) => TableIdx.fromInt(i) }
+
+    def lookupTableIdx(tableIdx: TableIdx): Option[Id] =
+      tables.lift(tableIdx.toInt).flatten
+
+    def lookupMem(id: Id): Option[MemIdx] =
+      mems.zipWithIndex.collectFirst { case (Some(`id`), i) => MemIdx.fromInt(i) }
+
+    def lookupMemIdx(memIdx: MemIdx): Option[Id] =
+      mems.lift(memIdx.toInt).flatten
+
+    def lookupGlobal(id: Id): Option[GlobalIdx] =
+      globals.zipWithIndex.collectFirst { case (Some(`id`), i) => GlobalIdx.fromInt(i) }
+
+    def lookupGlobalIdx(globalIdx: GlobalIdx): Option[Id] =
+      globals.lift(globalIdx.toInt).flatten
+
+    def lookupElem(id: Id): Option[ElemIdx] =
+      elem.zipWithIndex.collectFirst { case (Some(`id`), i) => ElemIdx.fromInt(i) }
+
+    def lookupElemIdx(elemIdx: ElemIdx): Option[Id] =
+      elem.lift(elemIdx.toInt).flatten
+
+    def lookupData(id: Id): Option[DataIdx] =
+      data.zipWithIndex.collectFirst { case (Some(`id`), i) => DataIdx.fromInt(i) }
+
+    def lookupDataIdx(dataIdx: DataIdx): Option[Id] =
+      data.lift(dataIdx.toInt).flatten
+
+    def lookupLocal(id: Id): Option[LocalIdx] =
+      locals.zipWithIndex.collectFirst { case (Some(`id`), i) => LocalIdx.fromInt(i) }
+
+    def lookupLocalIdx(localIdx: LocalIdx): Option[Id] =
+      locals.lift(localIdx.toInt).flatten
+
+    def lookupLabel(id: Id): Option[LabelIdx] =
+      labels.zipWithIndex.collectFirst { case (Some(`id`), i) => LabelIdx.fromInt(i) }
+
+    def lookupLabelIdx(labelIdx: LabelIdx): Option[Id] =
+      labels.lift(labelIdx.toInt).flatten
+  }
+
+  object IdentifierContext {
+    val empty: IdentifierContext = IdentifierContext(
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty,
+      Chunk.empty
+    )
+  }
 }

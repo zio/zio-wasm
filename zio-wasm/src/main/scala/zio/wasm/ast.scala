@@ -756,7 +756,7 @@ enum Instr {
 
   case VI32x4TruncSatF32x4(signedness: Signedness)     extends Instr with VectorInstr with VCvtOp
   case VI32x4TruncSatF64x2Zero(signedness: Signedness) extends Instr with VectorInstr with VCvtOp
-  case VI32x4ConvertI32x4(signedness: Signedness)      extends Instr with VectorInstr with VCvtOp
+  case VF32x4ConvertI32x4(signedness: Signedness)      extends Instr with VectorInstr with VCvtOp
   case VF32x4DemoteF64x2Zero                           extends Instr with VectorInstr with VCvtOp
   case VF64x2ConvertLowI32x4(signedness: Signedness)   extends Instr with VectorInstr with VCvtOp
   case VF64x2PromoteLowI32x4                           extends Instr with VectorInstr with VCvtOp

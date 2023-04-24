@@ -283,7 +283,15 @@ object BinarySpec extends ZIOSpecDefault {
             bytes  <- ZIO.fromEither(Binary.vec(Binary.expr).print(value))
             result <- ZIO.fromEither(Binary.vec(Binary.expr).parseChunk(bytes))
           } yield assertTrue(result == value)
-        }
+        },
+        test("Instr roundtrip") {
+          check(AstGen.instr) { instr =>
+            for {
+              bytes  <- ZIO.fromEither(Binary.instr.print(instr))
+              result <- ZIO.fromEither(Binary.instr.parseChunk(bytes))
+            } yield assertTrue(result == instr)
+          }
+        } @@ TestAspect.size(1000) @@ TestAspect.samples(10000)
       )
     )
 }

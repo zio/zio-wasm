@@ -64,6 +64,9 @@ final case class Module(
     this.copy(
       funcs = funcs.map(_.mapInstr(f))
     )
+
+  def typeIdxOf(funcType: FuncType): TypeIdx =
+    TypeIdx.fromInt(types.indexOf(funcType))
 }
 
 // Indices
@@ -83,6 +86,7 @@ object TypeIdx {
   def fromInt(value: Int): TypeIdx = value
 
   extension (idx: TypeIdx) {
+    def next: TypeIdx = idx + 1
     def toInt: Int = idx
   }
 }

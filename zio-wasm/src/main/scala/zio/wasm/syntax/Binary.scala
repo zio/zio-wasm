@@ -2236,9 +2236,26 @@ object Binary {
 
   private val dataCountSection: BinarySyntax[Int] = u32 ?? "dataCountSection"
 
-  // TODO: rewrite compress functions to keep order
-  private def compressLocals(locals: Chunk[ValType]): Chunk[(Int, ValType)] =
-    Chunk.fromIterable(locals.groupBy(identity).map { case (vt, vs) => (vs.size, vt) })
+  private def compressLocals(locals: Chunk[ValType]): Chunk[(Int, ValType)] = {
+    val builder = ChunkBuilder.make[(Int, ValType)](locals.size)
+    if (locals.isEmpty) Chunk.empty
+    else {
+      var last: ValType = locals.head
+      var count: Int    = 1
+      for (i <- 1 until locals.size) {
+        val current = locals(i)
+        if (current == last) {
+          count += 1
+        } else {
+          builder += ((count, last))
+          count = 1
+          last = current
+        }
+      }
+      builder += ((count, last))
+      builder.result()
+    }
+  }
 
   private def uncompressLocals(locals: Chunk[(Int, ValType)]): Chunk[ValType] =
     locals.flatMap { case (n, vt) => Chunk.fill(n)(vt) }
@@ -2251,6 +2268,20 @@ object Binary {
           section.to(syntax)
         }
         .getOrElse(Right(empty))
+
+    def customSections: Either[SyntaxError, Chunk[Custom]] =
+      sections
+        .filter(_.id == Section.custom)
+        .map { section =>
+          section.to(name ~ anyBytes).map { case (n, bs) =>
+            Custom(n, bs)
+          }
+        }
+        .foldLeft[Either[SyntaxError, Chunk[Custom]]](Right(Chunk.empty)) {
+          case (Right(r), Right(section)) => Right(r :+ section)
+          case (Left(err), _)             => Left(err)
+          case (Right(_), Left(err))      => Left(err)
+        }
 
     for {
       ts       <- section(Section.`type`, typeSection, Chunk.empty)
@@ -2269,6 +2300,7 @@ object Binary {
       s        <- section[Option[Start]](Section.start, startSection.transform(Some(_), _.get), None)
       imps     <- section(Section.`import`, importSection, Chunk.empty)
       exps     <- section(Section.`export`, exportSection, Chunk.empty)
+      custom   <- customSections
     } yield Module(
       ts,
       fs,
@@ -2279,7 +2311,8 @@ object Binary {
       ds,
       s,
       imps,
-      exps
+      exps,
+      custom
     )
   }
 
@@ -2293,25 +2326,40 @@ object Binary {
       if (condition) Section.of(id, syntax, value).map(Chunk.single)
       else Right(Chunk.empty)
 
+    def customSection: Either[SyntaxError, Chunk[Section]] =
+      module.custom
+        .map { custom =>
+          name.asPrinter.print(custom.name).map { nameBytes =>
+            val data = nameBytes ++ custom.data
+            Section(Section.custom, data.size, data)
+          }
+        }
+        .foldLeft[Either[SyntaxError, Chunk[Section]]](Right(Chunk.empty)) {
+          case (Right(r), Right(section)) => Right(r :+ section)
+          case (Left(err), _)             => Left(err)
+          case (Right(_), Left(err))      => Left(err)
+        }
+
     for {
-      ts   <- section(module.types.nonEmpty, Section.`type`, typeSection, module.types)
-      fs   <- section(module.funcs.nonEmpty, Section.function, functionSection, module.funcs.map(_.typ))
-      cs   <- section(
-                module.funcs.nonEmpty,
-                Section.code,
-                codeSection,
-                module.funcs.map(f => (compressLocals(f.locals), f.body))
-              )
-      tbls <- section(module.tables.nonEmpty, Section.table, tableSection, module.tables)
-      ms   <- section(module.mems.nonEmpty, Section.memory, memorySection, module.mems)
-      gs   <- section(module.globals.nonEmpty, Section.global, globalSection, module.globals)
-      es   <- section(module.elems.nonEmpty, Section.element, elemSection, module.elems)
-      ds   <- section(module.datas.nonEmpty, Section.data, dataSection, module.datas)
-      s    <- section(module.start.nonEmpty, Section.start, startSection, module.start.get)
-      imps <- section(module.imports.nonEmpty, Section.`import`, importSection, module.imports)
-      exps <- section(module.exports.nonEmpty, Section.`export`, exportSection, module.exports)
-      dc   <- section(true, Section.dataCount, dataCountSection, module.datas.size)
-    } yield ts ++ imps ++ fs ++ tbls ++ ms ++ gs ++ exps ++ s ++ es ++ dc ++ cs ++ ds
+      ts     <- section(module.types.nonEmpty, Section.`type`, typeSection, module.types)
+      fs     <- section(module.funcs.nonEmpty, Section.function, functionSection, module.funcs.map(_.typ))
+      cs     <- section(
+                  module.funcs.nonEmpty,
+                  Section.code,
+                  codeSection,
+                  module.funcs.map(f => (compressLocals(f.locals), f.body))
+                )
+      tbls   <- section(module.tables.nonEmpty, Section.table, tableSection, module.tables)
+      ms     <- section(module.mems.nonEmpty, Section.memory, memorySection, module.mems)
+      gs     <- section(module.globals.nonEmpty, Section.global, globalSection, module.globals)
+      es     <- section(module.elems.nonEmpty, Section.element, elemSection, module.elems)
+      ds     <- section(module.datas.nonEmpty, Section.data, dataSection, module.datas)
+      s      <- section(module.start.nonEmpty, Section.start, startSection, module.start.get)
+      imps   <- section(module.imports.nonEmpty, Section.`import`, importSection, module.imports)
+      exps   <- section(module.exports.nonEmpty, Section.`export`, exportSection, module.exports)
+      dc     <- section(true, Section.dataCount, dataCountSection, module.datas.size)
+      custom <- customSection
+    } yield ts ++ imps ++ fs ++ tbls ++ ms ++ gs ++ exps ++ s ++ es ++ dc ++ cs ++ ds ++ custom
   }
 
   val module: BinarySyntax[Module] =

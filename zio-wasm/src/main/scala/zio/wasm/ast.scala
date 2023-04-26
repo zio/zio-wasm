@@ -18,8 +18,53 @@ final case class Module(
     datas: Chunk[Data],
     start: Option[Start],
     imports: Chunk[Import],
-    exports: Chunk[Export]
-)
+    exports: Chunk[Export],
+    custom: Chunk[Custom]
+) {
+
+  def addFunction(funcType: FuncType, locals: Chunk[ValType], body: Expr): (Module, FuncIdx) = {
+    val existingIndex         = types.indexOf(funcType)
+    val (typeIndex, newTypes) =
+      if (existingIndex >= 0) (TypeIdx.fromInt(existingIndex), types)
+      else (TypeIdx.fromInt(types.length), types :+ funcType)
+    val func                  = Func(typeIndex, locals, body)
+    val funcIdx               = FuncIdx.fromInt(funcs.length)
+    (
+      this.copy(
+        types = newTypes,
+        funcs = funcs :+ func
+      ),
+      funcIdx
+    )
+  }
+
+  def addTable(table: Table): (Module, TableIdx) =
+    (
+      this.copy(tables = tables :+ table),
+      TableIdx.fromInt(tables.length)
+    )
+
+  lazy val importedFunctions: Map[FuncIdx, (Name, Name, FuncType)] =
+    imports
+      .collect { case Import(module, name, ImportDesc.Func(funcTypeIdx)) =>
+        (module, name, types(funcTypeIdx.toInt))
+      }
+      .zipWithIndex
+      .map { (desc, idx) =>
+        (FuncIdx.fromInt(idx), desc)
+      }
+      .toMap
+
+  lazy val firstLocalFunctionIndex: FuncIdx = importedFunctions.lastOption.map(_._1.next).getOrElse(FuncIdx.fromInt(0))
+
+  def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
+    funcs.foldLeft(initial) { case (s, func) => func.foldLeftRec(s)(f) }
+
+  def mapInstr(f: Instr => Instr): Module =
+    this.copy(
+      funcs = funcs.map(_.mapInstr(f))
+    )
+}
 
 // Indices
 
@@ -48,7 +93,8 @@ object FuncIdx {
   def fromInt(value: Int): FuncIdx = value
 
   extension (idx: FuncIdx) {
-    def toInt: Int = idx
+    def next: FuncIdx = idx + 1
+    def toInt: Int    = idx
   }
 }
 
@@ -247,7 +293,13 @@ enum ExternType {
   *   The body is an instruction sequence that upon termination must produce a stack matching the function type’s result
   *   type.
   */
-final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr)
+final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr) {
+  def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
+    body.foldLeftRec(initial)(f)
+
+  def mapInstr(f: Instr => Instr): Func =
+    this.copy(body = body.mapInstr(f))
+}
 
 // Tables
 
@@ -377,6 +429,8 @@ enum ImportDesc {
   * the first index of any definition contained in the module itself.
   */
 final case class Import(module: Name, name: Name, desc: ImportDesc)
+
+final case class Custom(name: Name, data: Chunk[Byte])
 
 // Instructions
 
@@ -827,9 +881,43 @@ enum Instr {
   case Return                                                                        extends Instr with ControlInstr
   case Call(idx: FuncIdx)                                                            extends Instr with ControlInstr
   case CallIndirect(tableIdx: TableIdx, typeIdx: TypeIdx)                            extends Instr with ControlInstr
+
+  def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
+    this match {
+      case i @ Block(_, instructions)         =>
+        instructions.foldLeft(f(initial, i)) { case (s, i) => i.foldLeftRec(s)(f) }
+      case i @ Loop(_, instructions)          =>
+        instructions.foldLeft(f(initial, i)) { case (s, i) => i.foldLeftRec(s)(f) }
+      case i @ If(_, trueInstrs, falseInstrs) =>
+        falseInstrs.foldLeft(
+          trueInstrs.foldLeft(f(initial, i)) { case (s, i) => i.foldLeftRec(s)(f) }
+        ) { case (s, i) => i.foldLeftRec(s)(f) }
+      case i: Instr                           =>
+        f(initial, i)
+    }
+
+  def mapInstr(f: Instr => Instr): Instr =
+    this match {
+      case Block(blockType, instructions)         =>
+        Block(blockType, instructions.map(_.mapInstr(f)))
+      case Loop(blockType, instructions)          =>
+        Loop(blockType, instructions.map(_.mapInstr(f)))
+      case If(blockType, trueInstrs, falseInstrs) =>
+        If(blockType, trueInstrs.map(_.mapInstr(f)), falseInstrs.map(_.mapInstr(f)))
+      case i: Instr                               =>
+        f(i)
+    }
 }
 
-final case class Expr(instructions: Chunk[Instr])
+final case class Expr(instructions: Chunk[Instr]) {
+
+  // TODO: what should these be called
+  def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
+    instructions.foldLeft(initial) { case (s, i) => i.foldLeftRec(s)(f) }
+
+  def mapInstr(f: Instr => Instr): Expr =
+    this.copy(instructions = instructions.map(_.mapInstr(f)))
+}
 
 opaque type Name = String
 object Name {

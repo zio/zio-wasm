@@ -848,8 +848,8 @@ object Binary {
             case 249 => Parser.succeed(Instr.VI32x4TruncSatF32x4(Signedness.Unsigned))
             case 252 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Signed))
             case 253 => Parser.succeed(Instr.VI32x4TruncSatF64x2Zero(Signedness.Unsigned))
-            case 250 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Signed))
-            case 251 => Parser.succeed(Instr.VI32x4ConvertI32x4(Signedness.Unsigned))
+            case 250 => Parser.succeed(Instr.VF32x4ConvertI32x4(Signedness.Signed))
+            case 251 => Parser.succeed(Instr.VF32x4ConvertI32x4(Signedness.Unsigned))
             case 94  => Parser.succeed(Instr.VF32x4DemoteF64x2Zero)
             case 254 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Signed))
             case 255 => Parser.succeed(Instr.VF64x2ConvertLowI32x4(Signedness.Unsigned))
@@ -1791,7 +1791,7 @@ object Binary {
                 case Signedness.Unsigned => 253
               }
             )
-          case Instr.VI32x4ConvertI32x4(signedness)            =>
+          case Instr.VF32x4ConvertI32x4(signedness)            =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
               signedness match {
                 case Signedness.Signed   => 250

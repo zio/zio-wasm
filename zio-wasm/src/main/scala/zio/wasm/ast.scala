@@ -87,7 +87,7 @@ object TypeIdx {
 
   extension (idx: TypeIdx) {
     def next: TypeIdx = idx + 1
-    def toInt: Int = idx
+    def toInt: Int    = idx
   }
 }
 
@@ -923,6 +923,10 @@ final case class Expr(instructions: Chunk[Instr]) {
     this.copy(instructions = instructions.map(_.mapInstr(f)))
 }
 
+enum Type {
+  case Func(funcType: FuncType)
+}
+
 opaque type Name = String
 object Name {
   def fromString(name: String): Name      = name
@@ -931,4 +935,10 @@ object Name {
 
 extension (name: Name) {
   def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+}
+
+opaque type Url = String
+object Url {
+  def fromString(name: String): Url      = name
+  def fromBytes(bytes: Chunk[Byte]): Url = new String(bytes.toArray, StandardCharsets.UTF_8)
 }

@@ -112,6 +112,9 @@ object AstGen {
   val typeIdx: Gen[Any, TypeIdx] =
     Gen.int.map(TypeIdx.fromInt)
 
+  val memIdx: Gen[Any, MemIdx] =
+    Gen.int.map(MemIdx.fromInt)
+
   val memArg: Gen[Any, MemArg] =
     for {
       align  <- Gen.int
@@ -404,5 +407,16 @@ object AstGen {
       Gen.const(Instr.Return),
       funcIdx.map(Instr.Call.apply),
       tableIdx.zip(typeIdx).map(Instr.CallIndirect.apply)
+    )
+
+  val name: Gen[Any, Name] =
+    Gen.string1(Gen.alphaNumericChar).map(Name.fromString)
+
+  val exportDesc: Gen[Any, ExportDesc] =
+    Gen.oneOf(
+      funcIdx.map(ExportDesc.Func),
+      tableIdx.map(ExportDesc.Table),
+      memIdx.map(ExportDesc.Mem),
+      globalIdx.map(ExportDesc.Global)
     )
 }

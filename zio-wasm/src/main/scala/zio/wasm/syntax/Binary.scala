@@ -16,10 +16,10 @@ object Binary {
   type BinaryReader[A] = Parser[SyntaxError, Byte, A]
   type BinaryWriter[A] = Printer[SyntaxError, Byte, A]
 
-  private val anyByte  = Syntax.any[Byte]
-  private val anyBytes = anyByte.*
+  private[wasm] val anyByte  = Syntax.any[Byte]
+  private[wasm] val anyBytes = anyByte.*
 
-  private def specificByte(value: Byte): Syntax[SyntaxError, Byte, Byte, Byte] =
+  private[wasm] def specificByte(value: Byte): Syntax[SyntaxError, Byte, Byte, Byte] =
     anyByte.filter(_ == value, SyntaxError.UnexpectedByte)
 
   // LEB128 code based on https://github.com/facebook/buck/blob/main/third-party/java/dx/src/com/android/dex/Leb128.java
@@ -1973,10 +1973,24 @@ object Binary {
     instr.repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack).of[Expr] ?? "expr"
 
   private[wasm] opaque type SectionId = Byte
+  private[wasm] object SectionId {
+    def fromByte(byte: Byte): SectionId = byte
+  }
 
   private[wasm] final case class Section(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
-    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
-      (syntax).parseChunk(rawContents).left.map(SyntaxError.InnerParserError.apply)
+    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] = {
+      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
+      (syntax)
+        .parseChunk(rawContents)
+        .left
+        .map { err =>
+          println(s" => $err"); SyntaxError.InnerParserError(err)
+        }
+        .map { v =>
+          println(s" => $v")
+          v
+        }
+    }
   }
 
   private[wasm] object Section {
@@ -2015,7 +2029,7 @@ object Binary {
     parser <=> printer
   }
 
-  private val magic =
+  private[wasm] val magic =
     specificByte(0x00).unit(0x00) ~>
       specificByte(0x61).unit(0x61) ~>
       specificByte(0x73).unit(0x73) ~>
@@ -2065,7 +2079,7 @@ object Binary {
   private val global: BinarySyntax[Global]               = (globalType ~ expr).of[Global] ?? "global"
   private val globalSection: BinarySyntax[Chunk[Global]] = vec(global) ?? "globalSection"
 
-  private val exportDesc: BinarySyntax[ExportDesc]       =
+  private[wasm] val exportDesc: BinarySyntax[ExportDesc] =
     ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
       ExportDesc.Func.apply,
       { case ExportDesc.Func(funcIdx) => funcIdx },
@@ -2363,5 +2377,5 @@ object Binary {
   }
 
   val module: BinarySyntax[Module] =
-    (magic ~> version ~> section.repeat).transformEither(fromSections, toSections) ?? "module"
+    (magic ~> version ~> section.repeat0).transformEither(fromSections, toSections) ?? "module"
 }

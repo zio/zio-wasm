@@ -4,14 +4,17 @@ import zio.parser.*
 import zio.wasm.componentmodel.*
 import zio.wasm.syntax.{SyntaxError, Binary as WasmBinary}
 import zio.Chunk
-import zio.wasm.Custom
-import zio.wasm.syntax.Binary.anyByte
+import zio.wasm.syntax.Binary.{funcIdx, valType, vec1}
+import zio.wasm.{Custom, Module, Url}
+
+// TODO: simplify specificByte.unit and byte prefix based branching
 
 object Binary {
   import WasmBinary.{
     BinarySyntax,
     BinaryReader,
     BinaryWriter,
+    anyByte,
     anyBytes,
     specificByte,
     exportDesc,
@@ -25,11 +28,45 @@ object Binary {
     vec
   }
 
+  private def optional[T](inner: BinarySyntax[T]): BinarySyntax[Option[T]] =
+    specificByte(0x00)
+      .transformEither(_ => Right(None), { case None => Right(0x00) })
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01).unit(0x01) ~ inner)
+          .transformEither(i => Right(Some(i)), { case Some(i) => Right(i) })
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "optional"
+
+  private[wasm] val componentIdx: BinarySyntax[ComponentIdx] =
+    u32.transform(
+      ComponentIdx.fromInt,
+      _.toInt
+    ) ?? "componentIdx"
+
   private[wasm] val instanceIdx: BinarySyntax[InstanceIdx] =
     u32.transform(
       InstanceIdx.fromInt,
       _.toInt
     ) ?? "instanceIdx"
+
+  private[wasm] val moduleIdx: BinarySyntax[ModuleIdx] =
+    u32.transform(
+      ModuleIdx.fromInt,
+      _.toInt
+    ) ?? "moduleIdx"
+
+  private[wasm] val componentFuncIdx: BinarySyntax[ComponentFuncIdx] =
+    u32.transform(
+      ComponentFuncIdx.fromInt,
+      _.toInt
+    ) ?? "componentFuncIdx"
+
+  private[wasm] val componentTypeIdx: BinarySyntax[ComponentTypeIdx] =
+    u32.transform(
+      ComponentTypeIdx.fromInt,
+      _.toInt
+    ) ?? "componentTypeIdx"
 
   private[wasm] val outerAliasKind: BinarySyntax[OuterAliasKind] =
     ((specificByte(0x00) ~ specificByte(0x10)).transformTo(
@@ -181,23 +218,330 @@ object Binary {
 
     (parser <=> printer) ?? "alias"
   }
-//  private[wasm] val moduleDeclaration: BinarySyntax[ModuleDeclaration] =
-//    (specificByte(0x00).unit(0x00) ~> name ~ exportDesc)
-//      .of[ModuleDeclaration.Import]
-//      .widenWith(SyntaxError.InvalidCase)
-//      .orElse(
-//        (specificByte(0x01).unit(0x01) ~> typ).of[ModuleDeclaration.Type].widenWith(SyntaxError.InvalidCase)
-//      ) ?? "moduleDeclaration"
 
-//  private[wasm] val coreType: BinarySyntax[CoreType] =
-//    (specificByte(0x60).unit(0x60) ~> funcType)
-//      .of[CoreType.Function]
-//      .widenWith(SyntaxError.InvalidCase)
-//      .orElse(
-//        (specificByte(0x50).unit(0x50) ~> vec(moduleDeclaration)).of[CoreType.Module].widenWith(SyntaxError.InvalidCase)
-//      ) ?? "coreType"
+  private[wasm] val moduleDeclaration: BinarySyntax[ModuleDeclaration] =
+    (specificByte(0x00).unit(0x00) ~> WasmBinary.`import`)
+      .of[ModuleDeclaration.Import]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~> WasmBinary.`type`).of[ModuleDeclaration.Type].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x02)
+          .unit(0x02) ~> outerAliasKind ~ aliasTarget)
+          .transformEither(
+            { case (kind, target) =>
+              Right(ModuleDeclaration.OuterAlias(Alias.Outer(kind, target)))
+            },
+            {
+              case ModuleDeclaration.OuterAlias(Alias.Outer(kind, target)) => Right((kind, target))
+              case _                                                       => Left(SyntaxError.InvalidCase)
+            }
+          )
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x03).unit(0x03) ~ name ~ WasmBinary.exportDesc)
+          .of[ModuleDeclaration.Export]
+          .widenWith(
+            SyntaxError.InvalidCase
+          )
+      )
+      ?? "moduleDeclaration"
 
-  private[wasm] val aliasSection: BinarySyntax[Chunk[Alias]] = vec(alias) ?? "aliasSection"
+  private[wasm] val coreType: BinarySyntax[CoreType] =
+    (specificByte(0x60).unit(0x60) ~> funcType)
+      .of[CoreType.Function]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x50).unit(0x50) ~> vec(moduleDeclaration)).of[CoreType.Module].widenWith(SyntaxError.InvalidCase)
+      ) ?? "coreType"
+
+  private[wasm] val primitiveValueType: BinarySyntax[PrimitiveValueType] =
+    anyByte.transformEither(
+      {
+        case 0x7f => Right(PrimitiveValueType.Bool)
+        case 0x7e => Right(PrimitiveValueType.S8)
+        case 0x7d => Right(PrimitiveValueType.U8)
+        case 0x7c => Right(PrimitiveValueType.S16)
+        case 0x7b => Right(PrimitiveValueType.U16)
+        case 0x7a => Right(PrimitiveValueType.S32)
+        case 0x79 => Right(PrimitiveValueType.U32)
+        case 0x78 => Right(PrimitiveValueType.S64)
+        case 0x77 => Right(PrimitiveValueType.U64)
+        case 0x76 => Right(PrimitiveValueType.F32)
+        case 0x75 => Right(PrimitiveValueType.F64)
+        case 0x74 => Right(PrimitiveValueType.Chr)
+        case 0x73 => Right(PrimitiveValueType.Str)
+        case _    => Left(SyntaxError.InvalidCase)
+      },
+      {
+        case PrimitiveValueType.Bool => Right(0x7f)
+        case PrimitiveValueType.S8   => Right(0x7e)
+        case PrimitiveValueType.U8   => Right(0x7d)
+        case PrimitiveValueType.S16  => Right(0x7c)
+        case PrimitiveValueType.U16  => Right(0x7b)
+        case PrimitiveValueType.S32  => Right(0x7a)
+        case PrimitiveValueType.U32  => Right(0x79)
+        case PrimitiveValueType.S64  => Right(0x78)
+        case PrimitiveValueType.U64  => Right(0x77)
+        case PrimitiveValueType.F32  => Right(0x76)
+        case PrimitiveValueType.F64  => Right(0x75)
+        case PrimitiveValueType.Chr  => Right(0x74)
+        case PrimitiveValueType.Str  => Right(0x73)
+      }
+    ) ?? "primitiveValueType"
+
+  private[wasm] val componentValType: BinarySyntax[ComponentValType] =
+    primitiveValueType
+      .transformEither(
+        pvt => Right(ComponentValType.Primitive(pvt)),
+        {
+          case ComponentValType.Primitive(pvt) => Right(pvt)
+          case _                               => Left(SyntaxError.InvalidCase)
+        }
+      )
+      .orElse(
+        WasmBinary.typeIdx.transformEither(
+          idx => Right(ComponentValType.Defined(idx)),
+          {
+            case ComponentValType.Defined(idx) => Right(idx)
+            case _                             => Left(SyntaxError.InvalidCase)
+          }
+        )
+      ) ?? "componentValType"
+
+  private[wasm] val typeBounds: BinarySyntax[TypeBounds] =
+    (specificByte(0x00).unit(0x00) ~> componentTypeIdx)
+      .of[TypeBounds.Eq]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        specificByte(0x01).transformEither(
+          _ => Right(TypeBounds.SubResource),
+          {
+            case TypeBounds.SubResource => Right(0x01)
+            case _                      => Left(SyntaxError.InvalidCase)
+          }
+        )
+      )
+      ?? "typeBounds"
+
+  private[wasm] val externDesc: BinarySyntax[ExternDesc] = {
+    val parser =
+      componentExternalKind.asParser.flatMap {
+        case ComponentExternalKind.Module    => moduleIdx.asParser.to[ExternDesc.Module]
+        case ComponentExternalKind.Func      => componentFuncIdx.asParser.to[ExternDesc.Func]
+        case ComponentExternalKind.Value     => componentValType.asParser.to[ExternDesc.Val]
+        case ComponentExternalKind.Type      => typeBounds.asParser.to[ExternDesc.Type]
+        case ComponentExternalKind.Instance  => instanceIdx.asParser.to[ExternDesc.Instance]
+        case ComponentExternalKind.Component => componentIdx.asParser.to[ExternDesc.Component]
+      }
+
+    val printer =
+      Printer.byValue {
+        case ExternDesc.Module(idx)    =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Module) ~ moduleIdx.asPrinter(idx)
+        case ExternDesc.Func(idx)      =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Func) ~ componentFuncIdx.asPrinter(idx)
+        case ExternDesc.Val(tpe)       =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Value) ~ componentValType.asPrinter(tpe)
+        case ExternDesc.Type(bounds)   =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Type) ~ typeBounds.asPrinter(bounds)
+        case ExternDesc.Instance(idx)  =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Instance) ~ instanceIdx.asPrinter(idx)
+        case ExternDesc.Component(idx) =>
+          componentExternalKind.asPrinter(ComponentExternalKind.Component) ~ componentIdx.asPrinter(idx)
+      }
+
+    (parser <=> printer) ?? "externDesc"
+  }
+
+  private[wasm] val instantiationArgRef: BinarySyntax[InstantiationArgRef] =
+    (specificByte(0x12).unit(0x12) ~ instanceIdx).of[InstantiationArgRef.Instance].widenWith(SyntaxError.InvalidCase)
+      ?? "instantiationArgRef"
+
+  private[wasm] val instantiationArg: BinarySyntax[InstantiationArg] =
+    (name ~ instantiationArgRef).of[InstantiationArg] ?? "instantiationArg"
+
+  private[wasm] val instance: BinarySyntax[Instance] =
+    (specificByte(0x00).unit(0x00) ~ moduleIdx ~ vec(instantiationArg))
+      .of[Instance.Instantiate]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~ vec(WasmBinary.`export`)).of[Instance.FromExports].widenWith(SyntaxError.InvalidCase)
+      ) ?? "instance"
+
+  private[wasm] val url: BinarySyntax[Url] =
+    vec(anyByte).transform(
+      bytes => Url.fromBytes(bytes),
+      name => name.toBytes
+    ) ?? "name"
+
+  private[wasm] val externName: BinarySyntax[ExternName] =
+    (name ~ url).of[ExternName] ?? "externName"
+
+  private[wasm] val componentExport: BinarySyntax[ComponentExport] =
+    (externName ~ componentExternalKind ~ u32 ~ optional(externDesc)).of[ComponentExport] ?? "componentExport"
+
+  private[wasm] val componentInstantiationArg: BinarySyntax[ComponentInstantiationArg] =
+    (name ~ componentExternalKind ~ u32).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
+
+  private[wasm] val componentInstance: BinarySyntax[ComponentInstance] =
+    (specificByte(0x00).unit(0x00) ~ componentIdx ~ vec(componentInstantiationArg))
+      .of[ComponentInstance.Instantiate]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~ vec(componentExport)).of[ComponentInstance.FromExports].widenWith(SyntaxError.InvalidCase)
+      ) ?? "componentInstance"
+
+  private[wasm] val variantCase: BinarySyntax[VariantCase] =
+    (name ~ optional(componentValType) ~ optional(u32)).of[VariantCase] ?? "variantCase"
+
+  private[wasm] val componentDefinedType: BinarySyntax[ComponentDefinedType] =
+    primitiveValueType
+      .transformEither(
+        pvt => Right(ComponentDefinedType.Primitive(pvt)),
+        { case ComponentDefinedType.Primitive(pvt) => Right(pvt); case _ => Left(SyntaxError.InvalidCase) }
+      )
+      .orElse(
+        (specificByte(0x72)
+          .unit(0x72) ~ vec(name ~ componentValType)).of[ComponentDefinedType.Record].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x71)
+          .unit(0x71) ~ vec(variantCase)).of[ComponentDefinedType.Variant].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x70)
+          .unit(0x70) ~ componentValType).of[ComponentDefinedType.List].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6f)
+          .unit(0x6f) ~ vec(componentValType)).of[ComponentDefinedType.Tuple].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6e)
+          .unit(0x6e) ~ vec1(name)).of[ComponentDefinedType.Flags].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6d)
+          .unit(0x6d) ~ vec1(name)).of[ComponentDefinedType.Enum].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6c)
+          .unit(0x6c) ~ vec(componentValType)).of[ComponentDefinedType.Union].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6b)
+          .unit(0x6b) ~ componentValType).of[ComponentDefinedType.Option].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x6a)
+          .unit(0x6a) ~ optional(componentValType) ~ optional(componentValType))
+          .of[ComponentDefinedType.Result]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x69)
+          .unit(0x69) ~ componentTypeIdx).of[ComponentDefinedType.Own].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x68)
+          .unit(0x68) ~ componentTypeIdx).of[ComponentDefinedType.Borrow].widenWith(SyntaxError.InvalidCase)
+      ) ?? "componentDefinedType"
+
+  private[wasm] val componentFuncResult: BinarySyntax[ComponentFuncResult] =
+    (specificByte(0x00).unit(0x00) ~ componentValType)
+      .of[ComponentFuncResult.Unnamed]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~ vec(name ~ componentValType)).of[ComponentFuncResult.Named].widenWith(SyntaxError.InvalidCase)
+      ) ?? "componentFuncResult"
+
+  private[wasm] val componentFuncType: BinarySyntax[ComponentFuncType] =
+    (vec(name ~ componentValType) ~ componentFuncResult).of[ComponentFuncType] ?? "componentFuncType"
+
+  private[wasm] val componentImport: BinarySyntax[ComponentImport] =
+    (externName ~ externDesc).of[ComponentImport] ?? "componentImport"
+
+  private[wasm] val componentTypeDeclaration: BinarySyntax[ComponentTypeDeclaration] =
+    (specificByte(0x00).unit(0x00) ~ coreType)
+      .of[ComponentTypeDeclaration.Core]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~ componentType).of[ComponentTypeDeclaration.Type].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x02)
+          .unit(0x02) ~ alias).of[ComponentTypeDeclaration.Alias].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x03)
+          .unit(0x03) ~ componentImport).of[ComponentTypeDeclaration.Import].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x04)
+          .unit(0x04) ~ externName ~ externDesc)
+          .of[ComponentTypeDeclaration.Export]
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "componentTypeDeclaration"
+
+  private[wasm] val instanceTypeDeclaration: BinarySyntax[InstanceTypeDeclaration] =
+    (specificByte(0x00).unit(0x00) ~ coreType)
+      .of[InstanceTypeDeclaration.Core]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01) ~ componentType).of[InstanceTypeDeclaration.Type].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x02)
+          .unit(0x02) ~ alias).of[InstanceTypeDeclaration.Alias].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x04)
+          .unit(0x04) ~ externName ~ externDesc)
+          .of[InstanceTypeDeclaration.Export]
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "instanceTypeDeclaration"
+
+  private[wasm] lazy val componentType: BinarySyntax[ComponentType] =
+    (specificByte(0x3f).unit(0x3f) ~ valType ~ optional(funcIdx))
+      .of[ComponentType.Resource]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x40).unit(0x40) ~ componentFuncType).of[ComponentType.Func].widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x41)
+          .unit(0x41) ~ vec(componentTypeDeclaration))
+          .of[ComponentType.Component]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x42)
+          .unit(0x42) ~ vec(instanceTypeDeclaration))
+          .of[ComponentType.Instance]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        componentDefinedType
+          .of[ComponentType.Defined]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      ?? "componentType"
+
+  private[wasm] val aliasSection: BinarySyntax[Chunk[Alias]]                = vec(alias) ?? "aliasSection"
+  private[wasm] val coreTypeSection: BinarySyntax[Chunk[CoreType]]          = vec(coreType) ?? "coreTypeSection"
+  private[wasm] val coreInstanceSection: BinarySyntax[Chunk[Instance]]      = vec(instance) ?? "coreInstanceSection"
+  private[wasm] val instanceSection: BinarySyntax[Chunk[ComponentInstance]] =
+    vec(componentInstance) ?? "instanceSection"
+  private[wasm] val typeSection: BinarySyntax[Chunk[ComponentType]]         = vec(componentType) ?? "typeSection"
 
   private[wasm] object ComponentSection {
     val custom: SectionId       = SectionId.fromByte(0)
@@ -243,6 +587,18 @@ object Binary {
         }
         .map(_.flatten)
 
+    def singleValueSection[T](id: SectionId, syntax: BinarySyntax[T]): Either[SyntaxError, Chunk[T]] =
+      sections
+        .filter(_.id == id)
+        .map { section =>
+          section.to(syntax)
+        }
+        .foldLeft[Either[SyntaxError, Chunk[T]]](Right(Chunk.empty)) {
+          case (Right(r), Right(section)) => Right(r :+ section)
+          case (Left(err), _)             => Left(err)
+          case (Right(_), Left(err))      => Left(err)
+        }
+
     def customSections: Either[SyntaxError, Chunk[Custom]] =
       sections
         .filter(_.id == Section.custom)
@@ -258,15 +614,22 @@ object Binary {
         }
 
     for {
-      aliases <- section(ComponentSection.alias, aliasSection)
-      custom  <- customSections
+      modules            <- singleValueSection(ComponentSection.module, WasmBinary.module)
+      coreInstances      <- section(ComponentSection.coreInstance, coreInstanceSection)
+      coreTypes          <- section(ComponentSection.coreType, coreTypeSection)
+      components         <- singleValueSection(ComponentSection.component, component)
+      aliases            <- section(ComponentSection.alias, aliasSection)
+      componentInstances <- section(ComponentSection.instance, instanceSection)
+      types              <- section(ComponentSection.typ, typeSection)
+      custom             <- customSections
     } yield Component(
-      module = Chunk.empty,
-      instances = Chunk.empty,
-      coreTypes = Chunk.empty,
-      component = Chunk.empty,
+      modules = modules,
+      instances = coreInstances,
+      coreTypes = coreTypes,
+      components = components,
       aliases = aliases,
-      types = Chunk.empty,
+      componentInstances = componentInstances,
+      types = types,
       canons = Chunk.empty,
       start = None,
       imports = Chunk.empty,
@@ -304,11 +667,17 @@ object Binary {
         }
 
     for {
-      aliases <- section(ComponentSection.alias, alias, component.aliases)
-      custom  <- customSection
-    } yield aliases ++ custom
+      modules            <- section(ComponentSection.module, WasmBinary.module, component.modules)
+      coreInstances      <- section(ComponentSection.coreInstance, instance, component.instances)
+      coreTypes          <- section(ComponentSection.coreType, coreType, component.coreTypes)
+      components         <- section(ComponentSection.component, Binary.component, component.components)
+      aliases            <- section(ComponentSection.alias, alias, component.aliases)
+      componentInstances <- section(ComponentSection.instance, componentInstance, component.componentInstances)
+      types              <- section(ComponentSection.typ, componentType, component.types)
+      custom             <- customSection
+    } yield modules ++ aliases ++ coreInstances ++ coreTypes ++ components ++ componentInstances ++ types ++ custom // TODO: preserve original order
   }
 
-  val component: BinarySyntax[Component] =
+  lazy val component: BinarySyntax[Component] =
     (magic ~> version ~> section.repeat0).transformEither(fromSections, toSections) ?? "component"
 }

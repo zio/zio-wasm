@@ -8,12 +8,13 @@ import java.nio.charset.StandardCharsets
 // Based on https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 // and https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/readers/component/
 
-// TODO: Question: do we need to preserve the original section order and grouping? If yes this need to be refactored
+// TODO: we need to preserve the original section order and grouping! Alias and Type are sharing the index space (maybe more?)
 final case class Component(
-    module: Chunk[Module],
+    modules: Chunk[Module],
     instances: Chunk[Instance],
     coreTypes: Chunk[CoreType],
-    component: Chunk[Component],
+    components: Chunk[Component],
+    componentInstances: Chunk[ComponentInstance],
     aliases: Chunk[Alias],
     types: Chunk[ComponentType],
     canons: Chunk[Canon],
@@ -25,10 +26,28 @@ final case class Component(
 
 enum Instance {
   case Instantiate(moduleIdx: ModuleIdx, args: Chunk[InstantiationArg])
+  case FromExports(exports: Chunk[Export])
+}
+
+enum InstantiationArgRef {
+  case Instance(idx: InstanceIdx)
+}
+
+final case class InstantiationArg(
+    name: Name,
+    ref: InstantiationArgRef
+)
+
+enum ComponentInstance {
+  case Instantiate(componentIdx: ComponentIdx, args: Chunk[ComponentInstantiationArg])
   case FromExports(exports: Chunk[ComponentExport])
 }
 
-final case class InstantiationArg(name: Name, kind: ComponentExternalKind, idx: Int) // TODO: newtype for this index?
+final case class ComponentInstantiationArg(
+    name: Name,
+    kind: ComponentExternalKind,
+    idx: Int
+) // TODO: merge ComponentExternalKind with Idx
 
 enum ComponentExternalKind {
   case Module
@@ -80,14 +99,9 @@ enum CanonicalOption {
 
 final case class ComponentStart()
 
-final case class ComponentImport()
+final case class ComponentImport(name: ExternName, desc: ExternDesc)
 
-enum ExternAttrs {
-  case None
-  case URL(url: Url)
-}
-
-final case class ExternName(name: Name, attrs: ExternAttrs)
+final case class ExternName(name: Name, url: Url)
 
 final case class ComponentExport(
     name: ExternName,
@@ -96,7 +110,7 @@ final case class ComponentExport(
     desc: Option[ExternDesc]
 ) // TODO: index type
 
-// TODO: name? relation to ExportDesc?
+// TODO: name? relation to ExportDesc? ComponentTypeRef?
 enum ExternDesc {
   case Module(moduleIdx: ModuleIdx)
   case Func(funcIdx: ComponentFuncIdx)
@@ -119,7 +133,7 @@ enum CoreType {
 enum ModuleDeclaration {
   case Type(typ: zio.wasm.Type)
   case Export(name: Name, desc: ExportDesc)
-  case OuterAlias(alias: Alias)
+  case OuterAlias(alias: Alias.Outer)
   case Import(imp: zio.wasm.Import)
 }
 
@@ -143,17 +157,20 @@ enum ComponentFuncResult {
   case Named(types: Chunk[(Name, ComponentValType)])
 }
 
+// TODO: instance type declaration and component type declaration could be union types to share common cases
 enum InstanceTypeDeclaration {
   case Core(typ: CoreType)
   case Type(typ: ComponentType)
   case Alias(alias: zio.wasm.componentmodel.Alias)
-  case Export(name: Name, url: Url, desc: ExternDesc)
+  case Export(name: ExternName, desc: ExternDesc)
 }
 
 enum ComponentTypeDeclaration {
   case Core(typ: CoreType)
   case Type(typ: ComponentType)
   case Alias(alias: zio.wasm.componentmodel.Alias)
+  case Import(imp: ComponentImport)
+  case Export(name: ExternName, desc: ExternDesc)
 }
 
 enum ComponentDefinedType {
@@ -162,11 +179,11 @@ enum ComponentDefinedType {
   case Variant(cases: Chunk[VariantCase])
   case List(elem: ComponentValType)
   case Tuple(elems: Chunk[ComponentValType])
-  case Flags(names: Chunk[Name])
-  case Enum(cases: Chunk[Name])
+  case Flags(names: NonEmptyChunk[Name])
+  case Enum(cases: NonEmptyChunk[Name])
   case Union(types: Chunk[ComponentValType])
   case Option(typ: ComponentValType)
-  case Result(ok: ComponentValType, err: ComponentValType)
+  case Result(ok: scala.Option[ComponentValType], err: scala.Option[ComponentValType])
   case Own(typeIdx: ComponentTypeIdx)
   case Borrow(typeIdx: ComponentTypeIdx)
 }
@@ -203,6 +220,7 @@ extension (name: Id) {
   def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
 }
 
+// TODO: Is this the same as ComponentFuncIdx??
 type ComponentTypeIdx = ComponentTypeIdx.ComponentTypeIdx
 object ComponentTypeIdx {
   opaque type ComponentTypeIdx = Int

@@ -1,6 +1,6 @@
 package zio.wasm.syntax
 
-import zio.{Chunk, ChunkBuilder}
+import zio.{Chunk, ChunkBuilder, NonEmptyChunk}
 import zio.parser.*
 import zio.parser.Parser.ParserError
 import zio.parser.ParserOps
@@ -294,6 +294,12 @@ object Binary {
     (parser <=> printer) ?? "vec"
   }
 
+  private[wasm] def vec1[A](elem: BinarySyntax[A]): BinarySyntax[NonEmptyChunk[A]] =
+    vec[A](elem).transformEither(
+      c => NonEmptyChunk.fromChunk(c).toRight(SyntaxError.EmptyVector),
+      nec => Right(nec.toChunk)
+    )
+
   private[wasm] val name: BinarySyntax[Name] =
     vec(anyByte).transform(
       bytes => Name.fromBytes(bytes),
@@ -353,6 +359,15 @@ object Binary {
       { case (_, params, results) => FuncType(params, results) },
       { case FuncType(params, results) => (0x60, params, results) }
     ) ?? "funcType"
+
+  private[wasm] val `type`: BinarySyntax[Type] =
+    funcType.transformEither(
+      t => Right(Type.Func(t)),
+      {
+        case Type.Func(t) => Right(t)
+        case _            => Left(SyntaxError.InvalidCase)
+      }
+    ) ?? "type"
 
   private[wasm] val limits: BinarySyntax[Limits] =
     (specificByte(0x00) ~ u32)
@@ -2049,23 +2064,23 @@ object Binary {
       { case ImportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidImportDesc
     ) <>
-      (specificByte(0x01).unit(0x01) ~> tableIdx).transformTo(
+      (specificByte(0x01).unit(0x01) ~> tableType).transformTo(
         ImportDesc.Table.apply,
-        { case ImportDesc.Table(tableIdx) => tableIdx },
+        { case ImportDesc.Table(tableType) => tableType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x02).unit(0x02) ~> memIdx).transformTo(
+      (specificByte(0x02).unit(0x02) ~> memoryType).transformTo(
         ImportDesc.Mem.apply,
-        { case ImportDesc.Mem(memIdx) => memIdx },
+        { case ImportDesc.Mem(memType) => memType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x03).unit(0x03) ~> globalIdx).transformTo(
+      (specificByte(0x03).unit(0x03) ~> globalType).transformTo(
         ImportDesc.Global.apply,
-        { case ImportDesc.Global(globalIdx) => globalIdx },
+        { case ImportDesc.Global(globalType) => globalType },
         SyntaxError.InvalidImportDesc
       )) ?? "importDesc"
 
-  private val `import`: BinarySyntax[Import]             = (name ~ name ~ importDesc).of[Import] ?? "import"
+  private[wasm] val `import`: BinarySyntax[Import]       = (name ~ name ~ importDesc).of[Import] ?? "import"
   private val importSection: BinarySyntax[Chunk[Import]] = vec(`import`) ?? "importSection"
 
   private val functionSection: BinarySyntax[Chunk[TypeIdx]] = vec(typeIdx) ?? "functionSection"
@@ -2100,7 +2115,7 @@ object Binary {
         { case ExportDesc.Global(globalIdx) => globalIdx },
         SyntaxError.InvalidExportDesc
       )) ?? "exportDesc"
-  private val `export`: BinarySyntax[Export]             = (name ~ exportDesc).of[Export] ?? "export"
+  private[wasm] val `export`: BinarySyntax[Export]       = (name ~ exportDesc).of[Export] ?? "export"
   private val exportSection: BinarySyntax[Chunk[Export]] = vec(`export`) ?? "exportSection"
 
   private val start: BinarySyntax[Start]        = funcIdx.of[Start] ?? "start"
@@ -2376,6 +2391,9 @@ object Binary {
     } yield ts ++ imps ++ fs ++ tbls ++ ms ++ gs ++ exps ++ s ++ es ++ dc ++ cs ++ ds ++ custom
   }
 
+  private val moduleValue: BinarySyntax[Module] =
+    section.repeat0.transformEither(fromSections, toSections) ?? "module"
+
   val module: BinarySyntax[Module] =
-    (magic ~> version ~> section.repeat0).transformEither(fromSections, toSections) ?? "module"
+    (magic ~> version ~> moduleValue) ?? "module file"
 }

@@ -412,11 +412,38 @@ object AstGen {
   val name: Gen[Any, Name] =
     Gen.string1(Gen.alphaNumericChar).map(Name.fromString)
 
+  val url: Gen[Any, Url] =
+    Gen.string1(Gen.alphaNumericChar).map(Url.fromString)
+
   val exportDesc: Gen[Any, ExportDesc] =
     Gen.oneOf(
-      funcIdx.map(ExportDesc.Func),
-      tableIdx.map(ExportDesc.Table),
-      memIdx.map(ExportDesc.Mem),
-      globalIdx.map(ExportDesc.Global)
+      funcIdx.map(ExportDesc.Func.apply),
+      tableIdx.map(ExportDesc.Table.apply),
+      memIdx.map(ExportDesc.Mem.apply),
+      globalIdx.map(ExportDesc.Global.apply)
     )
+
+  val memType: Gen[Any, MemType] =
+    limits.map(MemType.apply)
+
+  val importDesc: Gen[Any, ImportDesc] =
+    Gen.oneOf(
+      funcIdx.map(ImportDesc.Func.apply),
+      tableType.map(ImportDesc.Table.apply),
+      memType.map(ImportDesc.Mem.apply),
+      globalType.map(ImportDesc.Global.apply)
+    )
+
+  val `import`: Gen[Any, Import] =
+    for {
+      module <- name
+      name <- name
+      desc <- importDesc
+    } yield Import(module, name, desc)
+
+  val `export`: Gen[Any, Export] =
+    for {
+      name <- name
+      desc <- exportDesc
+    } yield Export(name, desc)
 }

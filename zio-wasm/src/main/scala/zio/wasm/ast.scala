@@ -4,6 +4,8 @@ import zio.*
 
 import java.nio.charset.StandardCharsets
 
+// TODO: getters by typed indices
+
 /** WebAssembly programs are organized into modules, which are the unit of deployment, loading, and compilation. A
   * module collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports
   * and exports and provide initialization in the form of data and element segments, or a start function.
@@ -91,7 +93,7 @@ object TypeIdx {
   }
 }
 
-type FuncIdx = FuncIdx.FuncIdx
+type FuncIdx = FuncIdx.FuncIdx // TODO: rename to TypeIdx?
 object FuncIdx {
   opaque type FuncIdx = Int
   def fromInt(value: Int): FuncIdx = value
@@ -418,9 +420,9 @@ final case class Export(name: Name, desc: ExportDesc)
 
 enum ImportDesc {
   case Func(funcIdx: FuncIdx)
-  case Table(tableIdx: TableIdx)
-  case Mem(memIdx: MemIdx)
-  case Global(globalIdx: GlobalIdx)
+  case Table(tableIdx: TableType)
+  case Mem(memIdx: MemType)
+  case Global(globalIdx: GlobalType)
 }
 
 /** The imports component of a module defines a set of imports that are required for instantiation.
@@ -931,14 +933,18 @@ opaque type Name = String
 object Name {
   def fromString(name: String): Name      = name
   def fromBytes(bytes: Chunk[Byte]): Name = new String(bytes.toArray, StandardCharsets.UTF_8)
-}
 
-extension (name: Name) {
-  def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+  extension (name: Name) {
+    def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+  }
 }
 
 opaque type Url = String
 object Url {
   def fromString(name: String): Url      = name
   def fromBytes(bytes: Chunk[Byte]): Url = new String(bytes.toArray, StandardCharsets.UTF_8)
+
+  extension (name: Url) {
+    def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+  }
 }

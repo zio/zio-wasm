@@ -81,6 +81,9 @@ object AstGen {
   val componentFuncIdx: Gen[Any, ComponentFuncIdx] =
     Gen.int.map(ComponentFuncIdx.fromInt)
 
+  val valueIdx: Gen[Any, ValueIdx] =
+    Gen.int.map(ValueIdx.fromInt)
+
   val instantiationArgRef: Gen[Any, InstantiationArgRef] =
     Gen.oneOf(
       instanceIdx.map(InstantiationArgRef.Instance.apply)
@@ -233,4 +236,37 @@ object AstGen {
       Gen.chunkOf(instanceTypeDeclaration).map(ComponentType.Instance.apply),
       (WasmAstGen.valType <*> Gen.option(WasmAstGen.funcIdx)).map(ComponentType.Resource.apply)
     )
+
+  val canonicalOption: Gen[Any, CanonicalOption] =
+    Gen.oneOf(
+      Gen.const(CanonicalOption.Utf8),
+      Gen.const(CanonicalOption.Utf16),
+      Gen.const(CanonicalOption.CompactUtf16),
+      WasmAstGen.memIdx.map(CanonicalOption.Memory.apply),
+      WasmAstGen.funcIdx.map(CanonicalOption.Realloc.apply),
+      WasmAstGen.funcIdx.map(CanonicalOption.PostReturn.apply)
+    )
+
+  val canon: Gen[Any, Canon] =
+    Gen.oneOf(
+      for {
+        funcIdx  <- WasmAstGen.funcIdx
+        opts     <- Gen.chunkOf(canonicalOption)
+        funcType <- componentTypeIdx
+      } yield Canon.Lift(funcIdx, opts, funcType),
+      for {
+        funcIdx <- componentFuncIdx
+        opts    <- Gen.chunkOf(canonicalOption)
+      } yield Canon.Lower(funcIdx, opts),
+      componentTypeIdx.map(Canon.ResourceNew.apply),
+      componentValType.map(Canon.ResourceDrop.apply),
+      componentTypeIdx.map(Canon.ResourceRep.apply)
+    )
+
+  val componentStart: Gen[Any, ComponentStart] =
+    for {
+      funcIdx <- componentFuncIdx
+      args    <- Gen.chunkOf(valueIdx)
+      results <- Gen.int
+    } yield ComponentStart(funcIdx, args, results)
 }

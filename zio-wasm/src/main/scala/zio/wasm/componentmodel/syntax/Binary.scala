@@ -4,7 +4,7 @@ import zio.parser.*
 import zio.wasm.componentmodel.*
 import zio.wasm.syntax.{SyntaxError, Binary as WasmBinary}
 import zio.Chunk
-import zio.wasm.syntax.Binary.{funcIdx, valType, vec1}
+import zio.wasm.syntax.Binary.{funcIdx, memIdx, valType, vec1}
 import zio.wasm.{Custom, Module, Url}
 
 // TODO: simplify specificByte.unit and byte prefix based branching
@@ -49,6 +49,12 @@ object Binary {
       InstanceIdx.fromInt,
       _.toInt
     ) ?? "instanceIdx"
+
+  private[wasm] val valueIdx: BinarySyntax[ValueIdx] =
+    u32.transform(
+      ValueIdx.fromInt,
+      _.toInt
+    ) ?? "valueIdx"
 
   private[wasm] val moduleIdx: BinarySyntax[ModuleIdx] =
     u32.transform(
@@ -536,12 +542,94 @@ object Binary {
       )
       ?? "componentType"
 
+  private[wasm] val canonicalOption: BinarySyntax[CanonicalOption] =
+    (specificByte(0x00)
+      .unit(0x00))
+      .transformEither(
+        _ => Right(CanonicalOption.Utf8),
+        {
+          case CanonicalOption.Utf8 => Right(())
+          case _                    => Left(SyntaxError.InvalidCase)
+        }
+      )
+      .orElse(
+        (specificByte(0x01)
+          .unit(0x01))
+          .transformEither(
+            _ => Right(CanonicalOption.Utf16),
+            {
+              case CanonicalOption.Utf16 => Right(())
+              case _                     => Left(SyntaxError.InvalidCase)
+            }
+          )
+      )
+      .orElse(
+        (specificByte(0x02)
+          .unit(0x02))
+          .transformEither(
+            _ => Right(CanonicalOption.CompactUtf16),
+            {
+              case CanonicalOption.CompactUtf16 => Right(())
+              case _                            => Left(SyntaxError.InvalidCase)
+            }
+          )
+      )
+      .orElse(
+        (specificByte(0x03)
+          .unit(0x03) ~ memIdx)
+          .of[CanonicalOption.Memory]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x04)
+          .unit(0x04) ~ funcIdx)
+          .of[CanonicalOption.Realloc]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x05)
+          .unit(0x05) ~ funcIdx)
+          .of[CanonicalOption.PostReturn]
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "canonicalOption"
+
+  private[wasm] val canon: BinarySyntax[Canon] =
+    (specificByte(0x00).unit(0x00) ~ specificByte(0x00).unit(0x00) ~ funcIdx ~ vec(canonicalOption) ~ componentTypeIdx)
+      .of[Canon.Lift]
+      .widenWith(SyntaxError.InvalidCase)
+      .orElse(
+        (specificByte(0x01).unit(0x01) ~ specificByte(0x00).unit(0x00) ~ componentFuncIdx ~ vec(canonicalOption))
+          .of[Canon.Lower]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x02).unit(0x02) ~ componentTypeIdx)
+          .of[Canon.ResourceNew]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x03).unit(0x03) ~ componentValType)
+          .of[Canon.ResourceDrop]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte(0x04).unit(0x04) ~ componentTypeIdx)
+          .of[Canon.ResourceRep]
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "canon"
+
+  private[wasm] val componentStart: BinarySyntax[ComponentStart] =
+    (componentFuncIdx ~ vec(valueIdx) ~ u32).of[ComponentStart] ?? "componentStart"
+
   private[wasm] val aliasSection: BinarySyntax[Chunk[Alias]]                = vec(alias) ?? "aliasSection"
   private[wasm] val coreTypeSection: BinarySyntax[Chunk[CoreType]]          = vec(coreType) ?? "coreTypeSection"
   private[wasm] val coreInstanceSection: BinarySyntax[Chunk[Instance]]      = vec(instance) ?? "coreInstanceSection"
   private[wasm] val instanceSection: BinarySyntax[Chunk[ComponentInstance]] =
     vec(componentInstance) ?? "instanceSection"
   private[wasm] val typeSection: BinarySyntax[Chunk[ComponentType]]         = vec(componentType) ?? "typeSection"
+  private[wasm] val canonSection: BinarySyntax[Chunk[Canon]]                = vec(canon) ?? "canonSection"
+  private[wasm] val importSection: BinarySyntax[Chunk[ComponentImport]]     = vec(componentImport) ?? "importSection"
+  private[wasm] val exportSection: BinarySyntax[Chunk[ComponentExport]]     = vec(componentExport) ?? "exportSection"
 
   private[wasm] object ComponentSection {
     val custom: SectionId       = SectionId.fromByte(0)
@@ -621,6 +709,10 @@ object Binary {
       aliases            <- section(ComponentSection.alias, aliasSection)
       componentInstances <- section(ComponentSection.instance, instanceSection)
       types              <- section(ComponentSection.typ, typeSection)
+      canons             <- section(ComponentSection.canon, canonSection)
+      starts             <- singleValueSection(ComponentSection.start, componentStart)
+      imports            <- section(ComponentSection.`import`, importSection)
+      exports            <- section(ComponentSection.`export`, exportSection)
       custom             <- customSections
     } yield Component(
       modules = modules,
@@ -630,10 +722,10 @@ object Binary {
       aliases = aliases,
       componentInstances = componentInstances,
       types = types,
-      canons = Chunk.empty,
-      start = None,
-      imports = Chunk.empty,
-      exports = Chunk.empty,
+      canons = canons,
+      starts = starts,
+      imports = imports,
+      exports = exports,
       custom = custom
     )
   }
@@ -674,8 +766,12 @@ object Binary {
       aliases            <- section(ComponentSection.alias, alias, component.aliases)
       componentInstances <- section(ComponentSection.instance, componentInstance, component.componentInstances)
       types              <- section(ComponentSection.typ, componentType, component.types)
+      canons             <- section(ComponentSection.canon, canon, component.canons)
+      starts             <- section(ComponentSection.start, componentStart, component.starts)
+      imports            <- section(ComponentSection.`import`, componentImport, component.imports)
+      exports            <- section(ComponentSection.`export`, componentExport, component.exports)
       custom             <- customSection
-    } yield modules ++ aliases ++ coreInstances ++ coreTypes ++ components ++ componentInstances ++ types ++ custom // TODO: preserve original order
+    } yield modules ++ aliases ++ coreInstances ++ coreTypes ++ components ++ componentInstances ++ types ++ canons ++ starts ++ imports ++ exports ++ custom // TODO: preserve original order
   }
 
   lazy val component: BinarySyntax[Component] =

@@ -18,7 +18,7 @@ final case class Component(
     aliases: Chunk[Alias],
     types: Chunk[ComponentType],
     canons: Chunk[Canon],
-    start: Option[ComponentStart],
+    starts: Chunk[ComponentStart],
     imports: Chunk[ComponentImport],
     exports: Chunk[ComponentExport],
     custom: Chunk[Custom]
@@ -97,7 +97,7 @@ enum CanonicalOption {
   case PostReturn(idx: FuncIdx)
 }
 
-final case class ComponentStart()
+final case class ComponentStart(funcIdx: ComponentFuncIdx, args: Chunk[ValueIdx], results: Int)
 
 final case class ComponentImport(name: ExternName, desc: ExternDesc)
 
@@ -273,5 +273,16 @@ object InstanceIdx {
   extension (idx: InstanceIdx) {
     def next: InstanceIdx = idx + 1
     def toInt: Int        = idx
+  }
+}
+
+type ValueIdx = ValueIdx.ValueIdx
+object ValueIdx {
+  opaque type ValueIdx = Int
+  def fromInt(value: Int): ValueIdx = value
+
+  extension (idx: ValueIdx) {
+    def next: ValueIdx = idx + 1
+    def toInt: Int     = idx
   }
 }

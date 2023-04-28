@@ -66,6 +66,20 @@ object BinarySpec extends ZIOSpecDefault {
           assertTrue(result == Right(componentType))
         }
       },
+      test("canon") {
+        check(AstGen.canon) { canon =>
+          val bytes  = Binary.canon.print(canon)
+          val result = bytes.flatMap(Binary.canon.parseChunk)
+          assertTrue(result == Right(canon))
+        }
+      },
+      test("start") {
+        check(AstGen.componentStart) { start =>
+          val bytes  = Binary.componentStart.print(start)
+          val result = bytes.flatMap(Binary.componentStart.parseChunk)
+          assertTrue(result == Right(start))
+        }
+      },
       test("instance example #1") {
         /*
         (core instance (;1;)

@@ -6,25 +6,11 @@ import zio.parser.Parser.ParserError
 import zio.parser.ParserOps
 import zio.prelude.*
 import zio.wasm.*
+import zio.wasm.internal.BinarySyntax.*
 
 import scala.reflect.ClassTag
 
 object Binary {
-  val mediaType: String        = "application/wasm"
-  val defaultExtension: String = ".wasm"
-
-  type BinarySyntax[A] = Syntax[SyntaxError, Byte, Byte, A]
-  type BinaryReader[A] = Parser[SyntaxError, Byte, A]
-  type BinaryWriter[A] = Printer[SyntaxError, Byte, A]
-
-  private[wasm] val anyByte  = Syntax.any[Byte]
-  private[wasm] val anyBytes = anyByte.*
-
-  private[wasm] def specificByte(value: Byte): Syntax[SyntaxError, Byte, Byte, Byte] =
-    anyByte.filter(_ == value, SyntaxError.UnexpectedByte)
-
-  private[wasm] def specificByte_(value: Byte): BinarySyntax[Unit] =
-    specificByte(value).unit(value)
 
   // LEB128 code based on https://github.com/facebook/buck/blob/main/third-party/java/dx/src/com/android/dex/Leb128.java
 

@@ -389,74 +389,23 @@ object Binary {
     )
 
   private[wasm] val canonicalOption: BinarySyntax[CanonicalOption] =
-    specificByte_(0x00)
-      .transformEither(
-        _ => Right(CanonicalOption.Utf8),
-        {
-          case CanonicalOption.Utf8 => Right(())
-          case _                    => Left(SyntaxError.InvalidCase)
-        }
-      )
-      .orElse(
-        specificByte_(0x01)
-          .transformEither(
-            _ => Right(CanonicalOption.Utf16),
-            {
-              case CanonicalOption.Utf16 => Right(())
-              case _                     => Left(SyntaxError.InvalidCase)
-            }
-          )
-      )
-      .orElse(
-        specificByte_(0x02)
-          .transformEither(
-            _ => Right(CanonicalOption.CompactUtf16),
-            {
-              case CanonicalOption.CompactUtf16 => Right(())
-              case _                            => Left(SyntaxError.InvalidCase)
-            }
-          )
-      )
-      .orElse(
-        (specificByte_(0x03) ~ memIdx)
-          .of[CanonicalOption.Memory]
-          .widenWith(SyntaxError.InvalidCase)
-      )
-      .orElse(
-        (specificByte_(0x04) ~ funcIdx)
-          .of[CanonicalOption.Realloc]
-          .widenWith(SyntaxError.InvalidCase)
-      )
-      .orElse(
-        (specificByte_(0x05) ~ funcIdx)
-          .of[CanonicalOption.PostReturn]
-          .widenWith(SyntaxError.InvalidCase)
-      ) ?? "canonicalOption"
+    casesByPrefix("canonicalOption")(
+      Prefix(0x00) -> Syntax.succeed(CanonicalOption.Utf8),
+      Prefix(0x01) -> Syntax.succeed(CanonicalOption.Utf16),
+      Prefix(0x02) -> Syntax.succeed(CanonicalOption.CompactUtf16),
+      Prefix(0x03) -> memIdx.of[CanonicalOption.Memory],
+      Prefix(0x04) -> funcIdx.of[CanonicalOption.Realloc],
+      Prefix(0x05) -> funcIdx.of[CanonicalOption.PostReturn]
+    )
 
   private[wasm] val canon: BinarySyntax[Canon] =
-    (specificByte_(0x00) ~ specificByte_(0x00) ~ funcIdx ~ vec(canonicalOption) ~ componentTypeIdx)
-      .of[Canon.Lift]
-      .widenWith(SyntaxError.InvalidCase)
-      .orElse(
-        (specificByte_(0x01) ~ specificByte_(0x00) ~ componentFuncIdx ~ vec(canonicalOption))
-          .of[Canon.Lower]
-          .widenWith(SyntaxError.InvalidCase)
-      )
-      .orElse(
-        (specificByte_(0x02) ~ componentTypeIdx)
-          .of[Canon.ResourceNew]
-          .widenWith(SyntaxError.InvalidCase)
-      )
-      .orElse(
-        (specificByte_(0x03) ~ componentValType)
-          .of[Canon.ResourceDrop]
-          .widenWith(SyntaxError.InvalidCase)
-      )
-      .orElse(
-        (specificByte_(0x04) ~ componentTypeIdx)
-          .of[Canon.ResourceRep]
-          .widenWith(SyntaxError.InvalidCase)
-      ) ?? "canon"
+    casesByPrefix("canon")(
+      Prefix(0x00, 0x00) -> (funcIdx ~ vec(canonicalOption) ~ componentTypeIdx).of[Canon.Lift],
+      Prefix(0x01, 0x00) -> (componentFuncIdx ~ vec(canonicalOption)).of[Canon.Lower],
+      Prefix(0x02)       -> componentTypeIdx.of[Canon.ResourceNew],
+      Prefix(0x03)       -> componentValType.of[Canon.ResourceDrop],
+      Prefix(0x04)       -> componentTypeIdx.of[Canon.ResourceRep]
+    )
 
   private[wasm] val componentStart: BinarySyntax[ComponentStart] =
     (componentFuncIdx ~ vec(valueIdx) ~ u32).of[ComponentStart] ?? "componentStart"

@@ -4,6 +4,7 @@ import zio.{Chunk, ChunkBuilder, NonEmptyChunk}
 import zio.parser.*
 import zio.parser.Parser.ParserError
 import zio.parser.ParserOps
+import zio.prelude.*
 import zio.wasm.*
 
 import scala.reflect.ClassTag
@@ -2305,10 +2306,8 @@ object Binary {
             Custom(n, bs)
           }
         }
-        .foldLeft[Either[SyntaxError, Chunk[Custom]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Custom]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     for {
@@ -2362,10 +2361,8 @@ object Binary {
             Section(Section.custom, data.size, data)
           }
         }
-        .foldLeft[Either[SyntaxError, Chunk[Section]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     for {

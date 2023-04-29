@@ -1,6 +1,7 @@
 package zio.wasm.componentmodel.syntax
 
 import zio.parser.*
+import zio.prelude.*
 import zio.wasm.componentmodel.*
 import zio.wasm.syntax.{SyntaxError, Binary as WasmBinary}
 import zio.Chunk
@@ -668,10 +669,8 @@ object Binary {
         .map { section =>
           section.to(syntax)
         }
-        .foldLeft[Either[SyntaxError, Chunk[Chunk[T]]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Chunk[T]]) { case (r, s) =>
+          s.map(r :+ _)
         }
         .map(_.flatten)
 
@@ -681,10 +680,8 @@ object Binary {
         .map { section =>
           section.to(syntax)
         }
-        .foldLeft[Either[SyntaxError, Chunk[T]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[T]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     def customSections: Either[SyntaxError, Chunk[Custom]] =
@@ -695,10 +692,8 @@ object Binary {
             Custom(n, bs)
           }
         }
-        .foldLeft[Either[SyntaxError, Chunk[Custom]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Custom]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     for {
@@ -738,10 +733,8 @@ object Binary {
     ): Either[SyntaxError, Chunk[Section]] =
       value
         .map(Section.of(id, syntax, _))
-        .foldLeft[Either[SyntaxError, Chunk[Section]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     def customSection: Either[SyntaxError, Chunk[Section]] =
@@ -752,10 +745,8 @@ object Binary {
             Section(Section.custom, data.size, data)
           }
         }
-        .foldLeft[Either[SyntaxError, Chunk[Section]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
+        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
+          s.map(r :+ _)
         }
 
     for {

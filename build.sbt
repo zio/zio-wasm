@@ -33,9 +33,10 @@ addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")
 addCommandAlias("fix", "; all compile:scalafix test:scalafix; all scalafmtSbt scalafmtAll")
 addCommandAlias("check", "; scalafmtSbtCheck; scalafmtCheckAll; compile:scalafix --check; test:scalafix --check")
 
-val zioVersion       = "2.0.10"
-val zioNioVersion    = "2.0.1"
-val zioParserVersion = "0.1.9"
+val zioVersion        = "2.0.10"
+val zioNioVersion     = "2.0.1"
+val zioParserVersion  = "0.1.9"
+val zioPreludeVersion = "1.0.0-RC18"
 
 lazy val root = (project in file("."))
   .settings(
@@ -56,6 +57,7 @@ lazy val zioWasm =
         "dev.zio" %% "zio"          % zioVersion,
         "dev.zio" %% "zio-nio"      % zioNioVersion,
         "dev.zio" %% "zio-parser"   % zioParserVersion,
+        "dev.zio" %% "zio-prelude"  % zioPreludeVersion,
         "dev.zio" %% "zio-streams"  % zioVersion,
         "dev.zio" %% "zio-test"     % zioVersion % Test,
         "dev.zio" %% "zio-test-sbt" % zioVersion % Test

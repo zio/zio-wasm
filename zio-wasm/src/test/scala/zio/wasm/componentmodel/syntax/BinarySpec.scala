@@ -74,6 +74,13 @@ object BinarySpec extends ZIOSpecDefault {
           assertTrue(result == Right(componentType))
         }
       },
+      test("canonical option") {
+        check(AstGen.canonicalOption) { canonicalOption =>
+          val bytes  = Binary.canonicalOption.print(canonicalOption)
+          val result = bytes.flatMap(Binary.canonicalOption.parseChunk)
+          assertTrue(result == Right(canonicalOption))
+        }
+      },
       test("canon") {
         check(AstGen.canon) { canon =>
           val bytes  = Binary.canon.print(canon)

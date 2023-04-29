@@ -389,14 +389,49 @@ object Binary {
     )
 
   private[wasm] val canonicalOption: BinarySyntax[CanonicalOption] =
-    casesByPrefix("canonicalOption")(
-      Prefix(0x00) -> Syntax.succeed(CanonicalOption.Utf8),
-      Prefix(0x01) -> Syntax.succeed(CanonicalOption.Utf16),
-      Prefix(0x02) -> Syntax.succeed(CanonicalOption.CompactUtf16),
-      Prefix(0x03) -> memIdx.of[CanonicalOption.Memory],
-      Prefix(0x04) -> funcIdx.of[CanonicalOption.Realloc],
-      Prefix(0x05) -> funcIdx.of[CanonicalOption.PostReturn]
-    )
+    specificByte_(0x00)
+      .transformEither(
+        _ => Right(CanonicalOption.Utf8),
+        {
+          case CanonicalOption.Utf8 => Right(())
+          case _                    => Left(SyntaxError.InvalidCase)
+        }
+      )
+      .orElse(
+        specificByte_(0x01)
+          .transformEither(
+            _ => Right(CanonicalOption.Utf16),
+            {
+              case CanonicalOption.Utf16 => Right(())
+              case _                     => Left(SyntaxError.InvalidCase)
+            }
+          )
+      )
+      .orElse(
+        specificByte_(0x02)
+          .transformEither(
+            _ => Right(CanonicalOption.CompactUtf16),
+            {
+              case CanonicalOption.CompactUtf16 => Right(())
+              case _                            => Left(SyntaxError.InvalidCase)
+            }
+          )
+      )
+      .orElse(
+        (specificByte_(0x03) ~ memIdx)
+          .of[CanonicalOption.Memory]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte_(0x04) ~ funcIdx)
+          .of[CanonicalOption.Realloc]
+          .widenWith(SyntaxError.InvalidCase)
+      )
+      .orElse(
+        (specificByte_(0x05) ~ funcIdx)
+          .of[CanonicalOption.PostReturn]
+          .widenWith(SyntaxError.InvalidCase)
+      ) ?? "canonicalOption"
 
   private[wasm] val canon: BinarySyntax[Canon] =
     casesByPrefix("canon")(

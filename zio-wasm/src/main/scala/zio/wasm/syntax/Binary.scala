@@ -23,6 +23,9 @@ object Binary {
   private[wasm] def specificByte(value: Byte): Syntax[SyntaxError, Byte, Byte, Byte] =
     anyByte.filter(_ == value, SyntaxError.UnexpectedByte)
 
+  private[wasm] def specificByte_(value: Byte): BinarySyntax[Unit] =
+    specificByte(value).unit(value)
+
   // LEB128 code based on https://github.com/facebook/buck/blob/main/third-party/java/dx/src/com/android/dex/Leb128.java
 
   private[wasm] def writeUnsignedLEB128Int: BinaryWriter[Int] =
@@ -648,7 +651,7 @@ object Binary {
             case 13         => Binary.elemIdx.asParser.to[Instr.ElemDrop]
             case 11         => specificByte(0x00).asParser.as(Instr.MemoryFill)
             case 10         => (specificByte(0x00) ~ specificByte(0x00)).asParser.as(Instr.MemoryCopy)
-            case 8          => (Binary.dataIdx <~ specificByte(0x00).unit(0x00)).asParser.to[Instr.MemoryInit]
+            case 8          => (Binary.dataIdx <~ specificByte_(0x00)).asParser.to[Instr.MemoryInit]
             case 9          => Binary.dataIdx.asParser.to[Instr.DataDrop]
             case other: Int => Parser.fail(SyntaxError.InvalidOpcode(Some(0xfc.toByte), other))
           }
@@ -961,16 +964,16 @@ object Binary {
         case 0x00 => Parser.succeed(Instr.Unreachable)
         case 0x02 =>
           (Binary.blockType ~ Binary.instr
-            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .repeatUntil(specificByte_(0x0b.toByte).backtrack)).asParser
             .to[Instr.Block]
         case 0x03 =>
           (Binary.blockType ~ Binary.instr
-            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .repeatUntil(specificByte_(0x0b.toByte).backtrack)).asParser
             .to[Instr.Loop]
         case 0x04 =>
           Binary.blockType.asParser.flatMap { blockType =>
             (Binary.instr <+> anyByte.filter(b => b == 0x05, SyntaxError.UnexpectedByte)).autoBacktracking
-              .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)
+              .repeatUntil(specificByte_(0x0b.toByte).backtrack)
               .asParser
               .map { instrs =>
                 val (trueInstr, falseInstr) = instrs.splitWhere(_.isRight)
@@ -1980,13 +1983,13 @@ object Binary {
     private def opcode(code: Byte): Printer[Nothing, Byte, Any] = Printer.print(code)
 
     private def instructionSequence(instructions: Chunk[Instr], terminatedBy: Byte) =
-      Binary.instr.repeatUntil(specificByte(terminatedBy).unit(terminatedBy)).asPrinter(instructions)
+      Binary.instr.repeatUntil(specificByte_(terminatedBy)).asPrinter(instructions)
   }
 
   private[wasm] val instr: BinarySyntax[Instr] = (Instructions.read <=> Instructions.write) ?? "instr"
 
   private[wasm] val expr: BinarySyntax[Expr] =
-    instr.repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack).of[Expr] ?? "expr"
+    instr.repeatUntil(specificByte_(0x0b.toByte).backtrack).of[Expr] ?? "expr"
 
   private[wasm] opaque type SectionId = Byte
   private[wasm] object SectionId {
@@ -2045,36 +2048,36 @@ object Binary {
   }
 
   private[wasm] val magic =
-    specificByte(0x00).unit(0x00) ~>
-      specificByte(0x61).unit(0x61) ~>
-      specificByte(0x73).unit(0x73) ~>
-      specificByte(0x6d).unit(0x6d)
+    specificByte_(0x00) ~>
+      specificByte_(0x61) ~>
+      specificByte_(0x73) ~>
+      specificByte_(0x6d)
 
   private val version =
-    specificByte(0x01).unit(0x01) ~>
-      specificByte(0x00).unit(0x00) ~>
-      specificByte(0x00).unit(0x00) ~>
-      specificByte(0x00).unit(0x00)
+    specificByte_(0x01) ~>
+      specificByte_(0x00) ~>
+      specificByte_(0x00) ~>
+      specificByte_(0x00)
 
   private val typeSection: BinarySyntax[Chunk[FuncType]] = vec(funcType) ?? "typeSection"
 
   private val importDesc: BinarySyntax[ImportDesc] =
-    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+    ((specificByte_(0x00) ~> funcIdx).transformTo(
       ImportDesc.Func.apply,
       { case ImportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidImportDesc
     ) <>
-      (specificByte(0x01).unit(0x01) ~> tableType).transformTo(
+      (specificByte_(0x01) ~> tableType).transformTo(
         ImportDesc.Table.apply,
         { case ImportDesc.Table(tableType) => tableType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x02).unit(0x02) ~> memoryType).transformTo(
+      (specificByte_(0x02) ~> memoryType).transformTo(
         ImportDesc.Mem.apply,
         { case ImportDesc.Mem(memType) => memType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x03).unit(0x03) ~> globalType).transformTo(
+      (specificByte_(0x03) ~> globalType).transformTo(
         ImportDesc.Global.apply,
         { case ImportDesc.Global(globalType) => globalType },
         SyntaxError.InvalidImportDesc
@@ -2095,22 +2098,22 @@ object Binary {
   private val globalSection: BinarySyntax[Chunk[Global]] = vec(global) ?? "globalSection"
 
   private[wasm] val exportDesc: BinarySyntax[ExportDesc] =
-    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+    ((specificByte_(0x00) ~> funcIdx).transformTo(
       ExportDesc.Func.apply,
       { case ExportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidExportDesc
     ) <>
-      (specificByte(0x01).unit(0x01) ~> tableIdx).transformTo(
+      (specificByte_(0x01) ~> tableIdx).transformTo(
         ExportDesc.Table.apply,
         { case ExportDesc.Table(tableIdx) => tableIdx },
         SyntaxError.InvalidExportDesc
       ) <>
-      (specificByte(0x02).unit(0x02) ~> memIdx).transformTo(
+      (specificByte_(0x02) ~> memIdx).transformTo(
         ExportDesc.Mem.apply,
         { case ExportDesc.Mem(memIdx) => memIdx },
         SyntaxError.InvalidExportDesc
       ) <>
-      (specificByte(0x03).unit(0x03) ~> globalIdx).transformTo(
+      (specificByte_(0x03) ~> globalIdx).transformTo(
         ExportDesc.Global.apply,
         { case ExportDesc.Global(globalIdx) => globalIdx },
         SyntaxError.InvalidExportDesc

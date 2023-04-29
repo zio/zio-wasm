@@ -392,7 +392,7 @@ object Binary {
     (externName ~ componentExternalKind ~ u32 ~ optional(externDesc)).of[ComponentExport] ?? "componentExport"
 
   private[wasm] val componentInstantiationArg: BinarySyntax[ComponentInstantiationArg] =
-    (name ~ componentExternalKind ~ u32).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
+    (name ~ externDesc).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
 
   private[wasm] val componentInstance: BinarySyntax[ComponentInstance] =
     (specificByte(0x00).unit(0x00) ~ componentIdx ~ vec(componentInstantiationArg))
@@ -774,6 +774,9 @@ object Binary {
     } yield modules ++ aliases ++ coreInstances ++ coreTypes ++ components ++ componentInstances ++ types ++ canons ++ starts ++ imports ++ exports ++ custom // TODO: preserve original order
   }
 
+  private val componentValue: BinarySyntax[Component] =
+    section.repeat0.transformEither(fromSections, toSections) ?? "component"
+
   lazy val component: BinarySyntax[Component] =
-    (magic ~> version ~> section.repeat0).transformEither(fromSections, toSections) ?? "component"
+    (magic ~> version ~> componentValue) ?? "component file"
 }

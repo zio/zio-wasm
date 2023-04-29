@@ -4,7 +4,7 @@ import zio.{Chunk, ZIO}
 import zio.parser.*
 import zio.test.{Spec, TestAspect, ZIOSpecDefault, assertCompletes, assertTrue, check}
 import zio.wasm.{Name, Url}
-import zio.wasm.componentmodel.{AstGen, ComponentExport, ComponentExternalKind, ExternName, Instance}
+import zio.wasm.componentmodel.{AstGen, Component, ComponentExport, ComponentExternalKind, ExternName, Instance}
 import zio.wasm.syntax.BinarySpec.suite
 import zio.wasm.syntax.Binary as WasmBinary
 
@@ -51,6 +51,14 @@ object BinarySpec extends ZIOSpecDefault {
           } yield assertTrue(result == Right(componentExport))
         }
       },
+      test("component import") {
+        check(AstGen.componentImport) { componentImport =>
+          for {
+            bytes <- ZIO.fromEither(Binary.componentImport.print(componentImport))
+            result = (Binary.componentImport ~ Syntax.end).parseChunk(bytes)
+          } yield assertTrue(result == Right(componentImport))
+        }
+      },
       test("component instance") {
         check(AstGen.componentInstance) { componentInstance =>
           for {
@@ -80,6 +88,13 @@ object BinarySpec extends ZIOSpecDefault {
           assertTrue(result == Right(start))
         }
       },
+      test("full component") {
+        check(AstGen.component) { component =>
+          val bytes  = Binary.component.print(component)
+          val result = bytes.flatMap(Binary.component.parseChunk)
+          assertTrue(result == Right(component))
+        }
+      } @@ TestAspect.samples(10),
       test("instance example #1") {
         /*
         (core instance (;1;)
@@ -234,6 +249,36 @@ object BinarySpec extends ZIOSpecDefault {
 
         val result = Binary.componentType.parseChunk(bytes)
         assertTrue(result.isRight)
+      },
+      test("component example #1") {
+        val component  = Component(
+          modules = Chunk.empty,
+          instances = Chunk.empty,
+          coreTypes = Chunk.empty,
+          components = Chunk.empty,
+          componentInstances = Chunk.empty,
+          types = Chunk.empty,
+          aliases = Chunk.empty,
+          canons = Chunk.empty,
+          starts = Chunk.empty,
+          imports = Chunk.empty,
+          exports = Chunk(
+            ComponentExport(
+              ExternName(Name.fromString("0"), Url.fromString("0")),
+              ComponentExternalKind.Module,
+              0,
+              None
+            )
+          ),
+          custom = Chunk.empty
+        )
+        val bytes      = Binary.component.print(component)
+        val component2 = bytes.flatMap { bs =>
+          println(bs.map(b => f"$b%02x").mkString(" "))
+          Binary.component.parseChunk(bs)
+        }
+
+        assertTrue(component == component2)
       }
     ) @@ TestAspect.samples(1000)
 }

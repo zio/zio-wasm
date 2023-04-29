@@ -1,5 +1,6 @@
 package zio.wasm
 
+import zio.Chunk
 import zio.test.*
 
 object AstGen {
@@ -446,4 +447,93 @@ object AstGen {
       name <- name
       desc <- exportDesc
     } yield Export(name, desc)
+
+  val expr: Gen[Any, Expr] =
+    Gen.chunkOf(instr).map(Expr.apply)
+
+
+  val func: Gen[Any, Func] =
+    for {
+      idx <- typeIdx
+      locals <- Gen.chunkOf(valType)
+      body <- expr
+    } yield Func(idx, locals, body)
+
+  val table: Gen[Any, Table] =
+    for {
+      tpe <- tableType
+    } yield Table(tpe)
+
+  val mem: Gen[Any, Mem] =
+    for {
+      tpe <- memType
+    } yield Mem(tpe)
+
+  val global: Gen[Any, Global] =
+    for {
+      tpe <- globalType
+      init <- expr
+    } yield Global(tpe, init)
+
+  val elemMode: Gen[Any, ElemMode] =
+    Gen.oneOf(
+      Gen.const(ElemMode.Passive),
+      Gen.const(ElemMode.Declarative),
+      for {
+        table <- tableIdx
+        offset <- expr
+      } yield ElemMode.Active(table, offset)
+    )
+
+  val elem: Gen[Any, Elem] =
+    for {
+      rt <- Gen.const(RefType.FuncRef) // TODO: there are some combinations where ExternRef is valid too
+      init <- Gen.chunkOf(expr)
+      mode <- elemMode
+    } yield Elem(rt, init, mode)
+
+  val dataMode: Gen[Any, DataMode] =
+    Gen.oneOf(
+      Gen.const(DataMode.Passive),
+      for {
+        mem <- memIdx
+        offset <- expr
+      } yield DataMode.Active(mem, offset)
+    )
+
+  val data: Gen[Any, Data] =
+    for {
+      init <- Gen.chunkOf(Gen.byte)
+      mode <- dataMode
+    } yield Data(init, mode)
+
+  val start: Gen[Any, Start] =
+    funcIdx.map(Start.apply)
+
+  val module: Gen[Any, Module] =
+    for {
+      types <- Gen.chunkOf(funcType)
+      funcs <- Gen.chunkOf(func)
+      tables <- Gen.chunkOf(table)
+      mems <- Gen.chunkOf(mem)
+      globals <- Gen.chunkOf(global)
+      elems <- Gen.chunkOf(elem)
+      datas <- Gen.chunkOf(data)
+      start <- Gen.option(start)
+      imports <- Gen.chunkOf(`import`)
+      exports <- Gen.chunkOf(`export`)
+      custom = Chunk.empty
+    } yield Module(
+        types,
+        funcs,
+        tables,
+        mems,
+        globals,
+        elems,
+        datas,
+        start,
+        imports,
+        exports,
+        custom
+        )
 }

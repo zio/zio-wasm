@@ -1,5 +1,6 @@
 package zio.wasm.componentmodel
 
+import zio.Chunk
 import zio.test.Gen
 import zio.wasm.AstGen as WasmAstGen
 
@@ -160,9 +161,8 @@ object AstGen {
   val componentInstantiationArg: Gen[Any, ComponentInstantiationArg] =
     for {
       n    <- WasmAstGen.name
-      kind <- componentExternalKind
-      idx  <- Gen.int
-    } yield ComponentInstantiationArg(n, kind, idx)
+      desc <- externDesc
+    } yield ComponentInstantiationArg(n, desc)
 
   val componentInstance: Gen[Any, ComponentInstance] =
     Gen.oneOf(
@@ -269,4 +269,66 @@ object AstGen {
       args    <- Gen.chunkOf(valueIdx)
       results <- Gen.int
     } yield ComponentStart(funcIdx, args, results)
+
+  private lazy val componentFlat: Gen[Any, Component] =
+    Gen.suspend {
+      for {
+        modules            <- Gen.chunkOf(WasmAstGen.module)
+        instances          <- Gen.chunkOf(instance)
+        coreTypes          <- Gen.chunkOf(coreType)
+        components          = Chunk.empty
+        componentInstances <- Gen.chunkOf(componentInstance)
+        aliases            <- Gen.chunkOf(alias)
+        types              <- Gen.chunkOf(componentType)
+        canons             <- Gen.chunkOf(canon)
+        starts             <- Gen.chunkOf(componentStart)
+        imports            <- Gen.chunkOf(componentImport)
+        exports            <- Gen.chunkOf(componentExport)
+        custom              = Chunk.empty
+      } yield Component(
+        modules,
+        instances,
+        coreTypes,
+        components,
+        componentInstances,
+        aliases,
+        types,
+        canons,
+        starts,
+        imports,
+        exports,
+        custom
+      )
+    }
+
+  lazy val component: Gen[Any, Component] =
+    Gen.suspend {
+      for {
+        modules            <- Gen.chunkOf(WasmAstGen.module)
+        instances          <- Gen.chunkOf(instance)
+        coreTypes          <- Gen.chunkOf(coreType)
+        components         <- Gen.chunkOf(componentFlat)
+        componentInstances <- Gen.chunkOf(componentInstance)
+        aliases            <- Gen.chunkOf(alias)
+        types              <- Gen.chunkOf(componentType)
+        canons             <- Gen.chunkOf(canon)
+        starts             <- Gen.chunkOf(componentStart)
+        imports            <- Gen.chunkOf(componentImport)
+        exports            <- Gen.chunkOf(componentExport)
+        custom              = Chunk.empty
+      } yield Component(
+        modules,
+        instances,
+        coreTypes,
+        components,
+        componentInstances,
+        aliases,
+        types,
+        canons,
+        starts,
+        imports,
+        exports,
+        custom
+      )
+    }
 }

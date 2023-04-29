@@ -1993,8 +1993,8 @@ object Binary {
   }
 
   private[wasm] final case class Section(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
-    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] = {
-      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
+    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
+//      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
       (syntax)
         .parseChunk(rawContents)
         .left
@@ -2002,10 +2002,9 @@ object Binary {
           println(s" => $err"); SyntaxError.InnerParserError(err)
         }
         .map { v =>
-          println(s" => $v")
+//          println(s" => $v")
           v
         }
-    }
   }
 
   private[wasm] object Section {
@@ -2122,7 +2121,7 @@ object Binary {
   private val startSection: BinarySyntax[Start] = start ?? "startSection"
 
   private val elemKind: BinarySyntax[RefType] =
-    anyByte.transformEither(
+    anyByte.transformEither[SyntaxError, RefType](
       {
         case 0x00 => Right(RefType.FuncRef)
         case _    => Left(SyntaxError.InvalidElemKind)

@@ -45,9 +45,8 @@ enum ComponentInstance {
 
 final case class ComponentInstantiationArg(
     name: Name,
-    kind: ComponentExternalKind,
-    idx: Int
-) // TODO: merge ComponentExternalKind with Idx
+    desc: ExternDesc
+)
 
 enum ComponentExternalKind {
   case Module
@@ -110,7 +109,6 @@ final case class ComponentExport(
     desc: Option[ExternDesc]
 ) // TODO: index type
 
-// TODO: name? relation to ExportDesc? ComponentTypeRef?
 enum ExternDesc {
   case Module(moduleIdx: ModuleIdx)
   case Func(funcIdx: ComponentFuncIdx)
@@ -157,7 +155,6 @@ enum ComponentFuncResult {
   case Named(types: Chunk[(Name, ComponentValType)])
 }
 
-// TODO: instance type declaration and component type declaration could be union types to share common cases
 enum InstanceTypeDeclaration {
   case Core(typ: CoreType)
   case Type(typ: ComponentType)
@@ -220,7 +217,6 @@ extension (name: Id) {
   def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
 }
 
-// TODO: Is this the same as ComponentFuncIdx??
 type ComponentTypeIdx = ComponentTypeIdx.ComponentTypeIdx
 object ComponentTypeIdx {
   opaque type ComponentTypeIdx = Int

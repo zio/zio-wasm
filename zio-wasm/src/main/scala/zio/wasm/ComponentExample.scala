@@ -11,6 +11,7 @@ object ComponentExample extends ZIOAppDefault {
       component  <- ZIO.fromEither(Binary.component.parseChunk(bytes))
       _          <- ZIO.debug(s"Component loaded")
       bytes2     <- ZIO.fromEither(Binary.component.print(component))
+      _          <- Files.writeBytes(Path("examples/example_component_1_out.wasm"), bytes2)
       component2 <- ZIO.fromEither(Binary.component.parseChunk(bytes2))
       _          <- ZIO.debug(s"Re-read component is the same: ${component == component2}")
       _          <- ZIO.debug(s"Rewrote binary is the same: ${bytes == bytes2}")

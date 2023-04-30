@@ -2,7 +2,7 @@ package zio.wasm.componentmodel
 
 import zio.Chunk
 import zio.test.Gen
-import zio.wasm.AstGen as WasmAstGen
+import zio.wasm.{Sections, AstGen as WasmAstGen}
 
 object AstGen {
   val componentIdx: Gen[Any, ComponentIdx]         = Gen.int.map(ComponentIdx.fromInt)
@@ -286,18 +286,22 @@ object AstGen {
         exports            <- Gen.chunkOf(componentExport)
         custom              = Chunk.empty
       } yield Component(
-        modules,
-        instances,
-        coreTypes,
-        components,
-        componentInstances,
-        aliases,
-        types,
-        canons,
-        starts,
-        imports,
-        exports,
-        custom
+        Sections.fromGrouped(
+          Chunk(
+            modules,
+            instances,
+            coreTypes,
+            components,
+            componentInstances,
+            aliases,
+            types,
+            canons,
+            starts,
+            imports,
+            exports,
+            custom
+          )
+        )
       )
     }
 
@@ -317,18 +321,22 @@ object AstGen {
         exports            <- Gen.chunkOf(componentExport)
         custom              = Chunk.empty
       } yield Component(
-        modules,
-        instances,
-        coreTypes,
-        components,
-        componentInstances,
-        aliases,
-        types,
-        canons,
-        starts,
-        imports,
-        exports,
-        custom
+        Sections.fromGrouped(
+          Chunk(
+            modules,
+            instances,
+            coreTypes,
+            components,
+            componentInstances,
+            aliases,
+            types,
+            canons,
+            starts,
+            imports,
+            exports,
+            custom
+          )
+        )
       )
     }
 }

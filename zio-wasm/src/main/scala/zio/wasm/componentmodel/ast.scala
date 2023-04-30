@@ -8,25 +8,15 @@ import java.nio.charset.StandardCharsets
 // Based on https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 // and https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/readers/component/
 
-// TODO: we need to preserve the original section order and grouping! Alias and Type are sharing the index space (maybe more?)
-final case class Component(
-    modules: Chunk[Module],
-    instances: Chunk[Instance],
-    coreTypes: Chunk[CoreType],
-    components: Chunk[Component],
-    componentInstances: Chunk[ComponentInstance],
-    aliases: Chunk[Alias],
-    types: Chunk[ComponentType],
-    canons: Chunk[Canon],
-    starts: Chunk[ComponentStart],
-    imports: Chunk[ComponentImport],
-    exports: Chunk[ComponentExport],
-    custom: Chunk[Custom]
-)
+final case class Component(sections: Sections[ComponentIndexSpace]) extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentSection
+}
 
-enum Instance {
+enum Instance extends Section[ComponentIndexSpace] {
   case Instantiate(moduleIdx: ModuleIdx, args: Chunk[InstantiationArg])
   case FromExports(exports: Chunk[Export])
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentCoreInstanceSection
 }
 
 enum InstantiationArgRef {
@@ -38,9 +28,11 @@ final case class InstantiationArg(
     ref: InstantiationArgRef
 )
 
-enum ComponentInstance {
+enum ComponentInstance extends Section[ComponentIndexSpace] {
   case Instantiate(componentIdx: ComponentIdx, args: Chunk[ComponentInstantiationArg])
   case FromExports(exports: Chunk[ComponentExport])
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentInstanceSection
 }
 
 final case class ComponentInstantiationArg(
@@ -71,20 +63,24 @@ enum ExportKind {
   case Global
 }
 
-enum Alias {
+enum Alias extends Section[ComponentIndexSpace] {
   case InstanceExport(kind: ComponentExternalKind, instanceIdx: InstanceIdx, name: Name)
   case CoreInstanceExport(kind: ExportKind, instanceIdx: InstanceIdx, name: Name)
   case Outer(kind: OuterAliasKind, target: AliasTarget)
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentAliasSection
 }
 
 final case class AliasTarget(ct: Int, idx: Int)
 
-enum Canon {
+enum Canon extends Section[ComponentIndexSpace] {
   case Lift(funcIdx: FuncIdx, opts: Chunk[CanonicalOption], functionType: ComponentTypeIdx)
   case Lower(funcIdx: ComponentFuncIdx, opts: Chunk[CanonicalOption])
   case ResourceNew(typeIdx: ComponentTypeIdx)
   case ResourceDrop(typ: ComponentValType)
   case ResourceRep(typeIdx: ComponentTypeIdx)
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentCanonSection
 }
 
 enum CanonicalOption {
@@ -97,8 +93,13 @@ enum CanonicalOption {
 }
 
 final case class ComponentStart(funcIdx: ComponentFuncIdx, args: Chunk[ValueIdx], results: Int)
+    extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentStartSection
+}
 
-final case class ComponentImport(name: ExternName, desc: ExternDesc)
+final case class ComponentImport(name: ExternName, desc: ExternDesc) extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentImportSection
+}
 
 final case class ExternName(name: Name, url: Url)
 
@@ -107,7 +108,9 @@ final case class ComponentExport(
     kind: ComponentExternalKind,
     idx: Int,
     desc: Option[ExternDesc]
-) // TODO: index type
+) extends Section[ComponentIndexSpace] { // TODO: index type
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentExportSection
+}
 
 enum ExternDesc {
   case Module(moduleIdx: ModuleIdx)
@@ -123,9 +126,11 @@ enum TypeBounds {
   case SubResource
 }
 
-enum CoreType {
+enum CoreType extends Section[ComponentIndexSpace] {
   case Function(funcType: FuncType)
   case Module(moduleTypes: Chunk[ModuleDeclaration])
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentCoreTypeSection
 }
 
 enum ModuleDeclaration {
@@ -140,12 +145,14 @@ enum ComponentValType {
   case Defined(typIdx: TypeIdx)
 }
 
-enum ComponentType {
+enum ComponentType extends Section[ComponentIndexSpace] {
   case Defined(componentDefinedType: ComponentDefinedType)
   case Func(componentFuncType: ComponentFuncType)
   case Component(componentTypes: Chunk[ComponentTypeDeclaration])
   case Instance(instanceTypes: Chunk[InstanceTypeDeclaration])
   case Resource(representation: ValType, destructor: Option[FuncIdx])
+
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentTypeSection
 }
 
 final case class ComponentFuncType(params: Chunk[(Name, ComponentValType)], result: ComponentFuncResult)
@@ -207,6 +214,10 @@ enum PrimitiveValueType {
   case Str
 }
 
+final case class Custom(name: Name, data: Chunk[Byte]) extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentCustomSection
+}
+
 opaque type Id = String
 object Id {
   def fromString(id: String): Id        = id
@@ -261,6 +272,17 @@ object ComponentIdx {
   }
 }
 
+type CoreInstanceIdx = CoreInstanceIdx.CoreInstanceIdx
+object CoreInstanceIdx {
+  opaque type CoreInstanceIdx = Int
+  def fromInt(value: Int): CoreInstanceIdx = value
+
+  extension (idx: CoreInstanceIdx) {
+    def next: CoreInstanceIdx = idx + 1
+    def toInt: Int            = idx
+  }
+}
+
 type InstanceIdx = InstanceIdx.InstanceIdx
 object InstanceIdx {
   opaque type InstanceIdx = Int
@@ -279,6 +301,28 @@ object ValueIdx {
 
   extension (idx: ValueIdx) {
     def next: ValueIdx = idx + 1
+    def toInt: Int     = idx
+  }
+}
+
+type CanonIdx = CanonIdx.CanonIdx
+object CanonIdx {
+  opaque type CanonIdx = Int
+  def fromInt(value: Int): CanonIdx = value
+
+  extension (idx: CanonIdx) {
+    def next: CanonIdx = idx + 1
+    def toInt: Int     = idx
+  }
+}
+
+type StartIdx = StartIdx.StartIdx
+object StartIdx {
+  opaque type StartIdx = Int
+  def fromInt(value: Int): StartIdx = value
+
+  extension (idx: StartIdx) {
+    def next: StartIdx = idx + 1
     def toInt: Int     = idx
   }
 }

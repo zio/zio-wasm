@@ -36,7 +36,7 @@ addCommandAlias("check", "; scalafmtSbtCheck; scalafmtCheckAll; compile:scalafix
 val zioVersion        = "2.0.10"
 val zioNioVersion     = "2.0.1"
 val zioParserVersion  = "0.1.9"
-val zioPreludeVersion = "1.0.0-RC18"
+val zioPreludeVersion = "1.0.0-RC19"
 
 lazy val root = (project in file("."))
   .settings(

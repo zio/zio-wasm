@@ -451,6 +451,14 @@ object AstGen {
   val expr: Gen[Any, Expr] =
     Gen.chunkOf(instr).map(Expr.apply)
 
+  val funcTypeRef: Gen[Any, FuncTypeRef] =
+    typeIdx.map(FuncTypeRef.apply)
+
+  val funcCode: Gen[Any, FuncCode] =
+    for {
+      locals <- Gen.chunkOf(valType)
+      body <- expr
+    } yield FuncCode(locals, body)
 
   val func: Gen[Any, Func] =
     for {
@@ -513,7 +521,8 @@ object AstGen {
   val module: Gen[Any, Module] =
     for {
       types <- Gen.chunkOf(funcType)
-      funcs <- Gen.chunkOf(func)
+      funcTypeRefs <- Gen.chunkOf(funcTypeRef)
+      funcCodes <- Gen.chunkOf(funcCode)
       tables <- Gen.chunkOf(table)
       mems <- Gen.chunkOf(mem)
       globals <- Gen.chunkOf(global)
@@ -522,18 +531,23 @@ object AstGen {
       start <- Gen.option(start)
       imports <- Gen.chunkOf(`import`)
       exports <- Gen.chunkOf(`export`)
-      custom = Chunk.empty
+      custom = Chunk.empty[Section[CoreIndexSpace]]
     } yield Module(
-        types,
-        funcs,
-        tables,
-        mems,
-        globals,
-        elems,
-        datas,
-        start,
-        imports,
-        exports,
-        custom
+      Sections.fromGrouped(
+        Chunk(
+          types,
+          funcTypeRefs,
+          funcCodes,
+          tables,
+          mems,
+          globals,
+          elems,
+          datas,
+          Chunk.fromIterable(start),
+          imports,
+          exports,
+          custom
         )
+      )
+    )
 }

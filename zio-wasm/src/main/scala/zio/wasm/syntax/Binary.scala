@@ -1982,7 +1982,7 @@ object Binary {
     def fromByte(byte: Byte): SectionId = byte
   }
 
-  private[wasm] final case class Section(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
+  private[wasm] final case class RawSection(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
     def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
 //      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
       (syntax)
@@ -1997,7 +1997,7 @@ object Binary {
         }
   }
 
-  private[wasm] object Section {
+  private[wasm] object RawSection {
     val custom: SectionId    = 0
     val `type`: SectionId    = 1
     val `import`: SectionId  = 2
@@ -2012,19 +2012,19 @@ object Binary {
     val data: SectionId      = 11
     val dataCount: SectionId = 12
 
-    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, Section] =
+    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, RawSection] =
       syntax.print(value).map { rawContents =>
-        Section(id, rawContents.size, rawContents)
+        RawSection(id, rawContents.size, rawContents)
       }
   }
 
-  private[wasm] val section: BinarySyntax[Section] = {
+  private[wasm] val section: BinarySyntax[RawSection] = {
     val parser  = (anyByte ~ u32).asParser.flatMap { case (id, size) =>
       anyByte.asParser.exactly(size).map { rawContents =>
-        Section(id, size, rawContents)
+        RawSection(id, size, rawContents)
       }
     }
-    val printer = Printer.byValue { (section: Section) =>
+    val printer = Printer.byValue { (section: RawSection) =>
       Printer.print(section.id) ~>
         u32.asPrinter(section.size) ~>
         anyBytes.asPrinter(section.rawContents)
@@ -2072,7 +2072,7 @@ object Binary {
   private[wasm] val `import`: BinarySyntax[Import]       = (name ~ name ~ importDesc).of[Import] ?? "import"
   private val importSection: BinarySyntax[Chunk[Import]] = vec(`import`) ?? "importSection"
 
-  private val functionSection: BinarySyntax[Chunk[TypeIdx]] = vec(typeIdx) ?? "functionSection"
+  private val functionSection: BinarySyntax[Chunk[FuncTypeRef]] = vec(typeIdx.of[FuncTypeRef]) ?? "functionSection"
 
   private val table: BinarySyntax[Table]               = tableType.of[Table] ?? "table"
   private val tableSection: BinarySyntax[Chunk[Table]] = vec(table) ?? "tableSection"
@@ -2205,10 +2205,10 @@ object Binary {
   }
   private val elemSection: BinarySyntax[Chunk[Elem]] = vec(elem) ?? "elemSection"
 
-  private val locals: BinarySyntax[(Int, ValType)]                            = (u32 ~ valType) ?? "locals"
-  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               =
+  private val locals: BinarySyntax[(Int, ValType)]              = (u32 ~ valType) ?? "locals"
+  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)] =
     (vec(locals) ~ expr) ?? "func"
-  private val code: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               = {
+  private val code: BinarySyntax[FuncCode]                      = {
     val parser  = (u32.unit(0) ~> func).asParser
     val printer = Printer.byValue { (value: (Chunk[(Int, ValType)], Expr)) =>
       func.print(value) match {
@@ -2217,9 +2217,12 @@ object Binary {
       }
     }
 
-    (parser <=> printer) ?? "code"
+    (parser <=> printer).transform(
+      { case (locals, body) => FuncCode(uncompressLocals(locals), body) },
+      (code: FuncCode) => (compressLocals(code.locals), code.body)
+    ) ?? "code"
   }
-  private val codeSection: BinarySyntax[Chunk[(Chunk[(Int, ValType)], Expr)]] = vec(code) ?? "codeSection"
+  private val codeSection: BinarySyntax[Chunk[FuncCode]]        = vec(code) ?? "codeSection"
 
   private val data: BinarySyntax[Data]               = {
     val parser = u32.asParser.flatMap {
@@ -2278,102 +2281,67 @@ object Binary {
   private def uncompressLocals(locals: Chunk[(Int, ValType)]): Chunk[ValType] =
     locals.flatMap { case (n, vt) => Chunk.fill(n)(vt) }
 
-  private def fromSections(sections: Chunk[Section]): Either[SyntaxError, Module] = {
-    def section[T](id: SectionId, syntax: BinarySyntax[T], empty: T): Either[SyntaxError, T] =
-      sections
-        .find(_.id == id)
-        .map { section =>
-          section.to(syntax)
-        }
-        .getOrElse(Right(empty))
+  private def fromSections(sections: Chunk[RawSection]): Either[SyntaxError, Module] = {
+    def loadSection(section: RawSection): Either[SyntaxError, Chunk[Section[CoreIndexSpace]]] =
+      section.id match {
+        case RawSection.`type`   => section.to(typeSection)
+        case RawSection.`import` => section.to(importSection)
+        case RawSection.function => section.to(functionSection)
+        case RawSection.code     => section.to(codeSection)
+        case RawSection.table    => section.to(tableSection)
+        case RawSection.memory   => section.to(memorySection)
+        case RawSection.global   => section.to(globalSection)
+        case RawSection.element  => section.to(elemSection)
+        case RawSection.data     => section.to(dataSection)
+        case RawSection.start    => section.to(startSection).map(Chunk.single)
+        case RawSection.`export` => section.to(exportSection)
+        case _                   => section.to(name ~ anyBytes).map { case (n, bs) => Chunk(Custom(n, bs)) }
+      }
 
-    def customSections: Either[SyntaxError, Chunk[Custom]] =
-      sections
-        .filter(_.id == Section.custom)
-        .map { section =>
-          section.to(name ~ anyBytes).map { case (n, bs) =>
-            Custom(n, bs)
-          }
-        }
-        .foldLeftM(Chunk.empty[Custom]) { case (r, s) =>
-          s.map(r :+ _)
-        }
-
-    for {
-      ts       <- section(Section.`type`, typeSection, Chunk.empty)
-      funTypes <- section(Section.function, functionSection, Chunk.empty)
-      codes    <- section(Section.code, codeSection, Chunk.empty)
-      _        <- if (funTypes.size == codes.size) Right(())
-                  else Left(SyntaxError.FunctionAndCodeSectionSizeMismatch)
-      fs        = funTypes.zip(codes).map { case (funType, (compressedLocals, body)) =>
-                    Func(funType, uncompressLocals(compressedLocals), body)
-                  }
-      tbls     <- section(Section.table, tableSection, Chunk.empty)
-      ms       <- section(Section.memory, memorySection, Chunk.empty)
-      gs       <- section(Section.global, globalSection, Chunk.empty)
-      es       <- section(Section.element, elemSection, Chunk.empty)
-      ds       <- section(Section.data, dataSection, Chunk.empty)
-      s        <- section[Option[Start]](Section.start, startSection.transform(Some(_), _.get), None)
-      imps     <- section(Section.`import`, importSection, Chunk.empty)
-      exps     <- section(Section.`export`, exportSection, Chunk.empty)
-      custom   <- customSections
-    } yield Module(
-      ts,
-      fs,
-      tbls,
-      ms,
-      gs,
-      es,
-      ds,
-      s,
-      imps,
-      exps,
-      custom
-    )
+    sections.forEach(loadSection).map { sections =>
+      Module(Sections.fromGrouped(sections))
+    }
   }
 
-  private def toSections(module: Module): Either[SyntaxError, Chunk[Section]] = {
-    def section[T](
-        condition: Boolean,
-        id: SectionId,
-        syntax: BinarySyntax[T],
-        value: => T
-    ): Either[SyntaxError, Chunk[Section]] =
-      if (condition) Section.of(id, syntax, value).map(Chunk.single)
-      else Right(Chunk.empty)
-
-    def customSection: Either[SyntaxError, Chunk[Section]] =
-      module.custom
-        .map { custom =>
+  private def toSections(module: Module): Either[SyntaxError, Chunk[RawSection]] = {
+    def encodeGroup(
+        sectionType: SectionType[CoreIndexSpace],
+        sections: Chunk[Section[CoreIndexSpace]]
+    ): Either[SyntaxError, RawSection] =
+      sectionType match {
+        case SectionType.CoreTypeSection      =>
+          RawSection.of(sectionType.binaryId, typeSection, sections.asInstanceOf[Chunk[FuncType]])
+        case SectionType.CoreImportSection    =>
+          RawSection.of(sectionType.binaryId, importSection, sections.asInstanceOf[Chunk[Import]])
+        case SectionType.CoreFuncSection      =>
+          RawSection.of(sectionType.binaryId, functionSection, sections.asInstanceOf[Chunk[FuncTypeRef]])
+        case SectionType.CoreTableSection     =>
+          RawSection.of(sectionType.binaryId, tableSection, sections.asInstanceOf[Chunk[Table]])
+        case SectionType.CoreMemSection       =>
+          RawSection.of(sectionType.binaryId, memorySection, sections.asInstanceOf[Chunk[Mem]])
+        case SectionType.CoreGlobalSection    =>
+          RawSection.of(sectionType.binaryId, globalSection, sections.asInstanceOf[Chunk[Global]])
+        case SectionType.CoreExportSection    =>
+          RawSection.of(sectionType.binaryId, exportSection, sections.asInstanceOf[Chunk[Export]])
+        case SectionType.CoreStartSection     =>
+          RawSection.of(sectionType.binaryId, startSection, sections.head.asInstanceOf[Start])
+        case SectionType.CoreElemSection      =>
+          RawSection.of(sectionType.binaryId, elemSection, sections.asInstanceOf[Chunk[Elem]])
+        case SectionType.CoreDataSection      =>
+          RawSection.of(sectionType.binaryId, dataSection, sections.asInstanceOf[Chunk[Data]])
+        case SectionType.CoreCodeSection      =>
+          RawSection.of(sectionType.binaryId, codeSection, sections.asInstanceOf[Chunk[FuncCode]])
+        case SectionType.CoreDataCountSection =>
+          RawSection.of(sectionType.binaryId, dataCountSection, sections.size)
+        case SectionType.CustomSection        =>
+          val custom = sections.head.asInstanceOf[Custom]
           name.asPrinter.print(custom.name).map { nameBytes =>
             val data = nameBytes ++ custom.data
-            Section(Section.custom, data.size, data)
+            RawSection(RawSection.custom, data.size, data)
           }
-        }
-        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
-          s.map(r :+ _)
-        }
+      }
 
-    for {
-      ts     <- section(module.types.nonEmpty, Section.`type`, typeSection, module.types)
-      fs     <- section(module.funcs.nonEmpty, Section.function, functionSection, module.funcs.map(_.typ))
-      cs     <- section(
-                  module.funcs.nonEmpty,
-                  Section.code,
-                  codeSection,
-                  module.funcs.map(f => (compressLocals(f.locals), f.body))
-                )
-      tbls   <- section(module.tables.nonEmpty, Section.table, tableSection, module.tables)
-      ms     <- section(module.mems.nonEmpty, Section.memory, memorySection, module.mems)
-      gs     <- section(module.globals.nonEmpty, Section.global, globalSection, module.globals)
-      es     <- section(module.elems.nonEmpty, Section.element, elemSection, module.elems)
-      ds     <- section(module.datas.nonEmpty, Section.data, dataSection, module.datas)
-      s      <- section(module.start.nonEmpty, Section.start, startSection, module.start.get)
-      imps   <- section(module.imports.nonEmpty, Section.`import`, importSection, module.imports)
-      exps   <- section(module.exports.nonEmpty, Section.`export`, exportSection, module.exports)
-      dc     <- section(true, Section.dataCount, dataCountSection, module.datas.size)
-      custom <- customSection
-    } yield ts ++ imps ++ fs ++ tbls ++ ms ++ gs ++ exps ++ s ++ es ++ dc ++ cs ++ ds ++ custom
+    module.sections.toGrouped.forEach { case (sectionType, sections) => encodeGroup(sectionType, sections) }
   }
 
   private val moduleValue: BinarySyntax[Module] =

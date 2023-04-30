@@ -11,7 +11,7 @@ import zio.wasm.syntax.Binary.{funcIdx, memIdx, valType, vec1}
 import zio.wasm.{Custom, Module, Url}
 
 object Binary {
-  import WasmBinary.{exportDesc, funcType, magic, name, Section, SectionId, section, u32, vec}
+  import WasmBinary.{exportDesc, funcType, magic, name, RawSection, SectionId, section, u32, vec}
 
   private def optional[T](inner: BinarySyntax[T]): BinarySyntax[Option[T]] =
     casesByPrefix("optional")(
@@ -455,7 +455,7 @@ object Binary {
   private[wasm] val importSection: BinarySyntax[Chunk[ComponentImport]]     = vec(componentImport) ?? "importSection"
   private[wasm] val exportSection: BinarySyntax[Chunk[ComponentExport]]     = vec(componentExport) ?? "exportSection"
 
-  private[wasm] object ComponentSection {
+  private[wasm] object RawComponentSection {
     val custom: SectionId       = SectionId.fromByte(0)
     val module: SectionId       = SectionId.fromByte(1)
     val coreInstance: SectionId = SectionId.fromByte(2)
@@ -469,9 +469,9 @@ object Binary {
     val `import`: SectionId     = SectionId.fromByte(10)
     val `export`: SectionId     = SectionId.fromByte(11)
 
-    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, Section] =
+    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, RawSection] =
       syntax.print(value).map { rawContents =>
-        Section(id, rawContents.size, rawContents)
+        RawSection(id, rawContents.size, rawContents)
       }
   }
 
@@ -481,7 +481,7 @@ object Binary {
       specificByte_(0x01) ~>
       specificByte_(0x00)
 
-  private def fromSections(sections: Chunk[Section]): Either[SyntaxError, Component] = {
+  private def fromSections(sections: Chunk[RawSection]): Either[SyntaxError, Component] = {
     sections.groupBy(_.id).foreach { (id, sections) =>
       println(id.toString + " " + sections.map(_.size))
     }
@@ -509,7 +509,7 @@ object Binary {
 
     def customSections: Either[SyntaxError, Chunk[Custom]] =
       sections
-        .filter(_.id == Section.custom)
+        .filter(_.id == RawSection.custom)
         .map { section =>
           section.to(name ~ anyBytes).map { case (n, bs) =>
             Custom(n, bs)
@@ -520,17 +520,17 @@ object Binary {
         }
 
     for {
-      modules            <- singleValueSection(ComponentSection.module, WasmBinary.module)
-      coreInstances      <- section(ComponentSection.coreInstance, coreInstanceSection)
-      coreTypes          <- section(ComponentSection.coreType, coreTypeSection)
-      components         <- singleValueSection(ComponentSection.component, component)
-      aliases            <- section(ComponentSection.alias, aliasSection)
-      componentInstances <- section(ComponentSection.instance, instanceSection)
-      types              <- section(ComponentSection.typ, typeSection)
-      canons             <- section(ComponentSection.canon, canonSection)
-      starts             <- singleValueSection(ComponentSection.start, componentStart)
-      imports            <- section(ComponentSection.`import`, importSection)
-      exports            <- section(ComponentSection.`export`, exportSection)
+      modules            <- singleValueSection(RawComponentSection.module, WasmBinary.module)
+      coreInstances      <- section(RawComponentSection.coreInstance, coreInstanceSection)
+      coreTypes          <- section(RawComponentSection.coreType, coreTypeSection)
+      components         <- singleValueSection(RawComponentSection.component, component)
+      aliases            <- section(RawComponentSection.alias, aliasSection)
+      componentInstances <- section(RawComponentSection.instance, instanceSection)
+      types              <- section(RawComponentSection.typ, typeSection)
+      canons             <- section(RawComponentSection.canon, canonSection)
+      starts             <- singleValueSection(RawComponentSection.start, componentStart)
+      imports            <- section(RawComponentSection.`import`, importSection)
+      exports            <- section(RawComponentSection.`export`, exportSection)
       custom             <- customSections
     } yield Component(
       modules = modules,
@@ -548,42 +548,42 @@ object Binary {
     )
   }
 
-  private def toSections(component: Component): Either[SyntaxError, Chunk[Section]] = {
+  private def toSections(component: Component): Either[SyntaxError, Chunk[RawSection]] = {
     def section[T](
         id: SectionId,
         syntax: BinarySyntax[T],
         value: => Chunk[T]
-    ): Either[SyntaxError, Chunk[Section]] =
+    ): Either[SyntaxError, Chunk[RawSection]] =
       value
-        .map(Section.of(id, syntax, _))
-        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
+        .map(RawSection.of(id, syntax, _))
+        .foldLeftM(Chunk.empty[RawSection]) { case (r, s) =>
           s.map(r :+ _)
         }
 
-    def customSection: Either[SyntaxError, Chunk[Section]] =
+    def customSection: Either[SyntaxError, Chunk[RawSection]] =
       component.custom
         .map { custom =>
           name.asPrinter.print(custom.name).map { nameBytes =>
             val data = nameBytes ++ custom.data
-            Section(Section.custom, data.size, data)
+            RawSection(RawSection.custom, data.size, data)
           }
         }
-        .foldLeftM(Chunk.empty[Section]) { case (r, s) =>
+        .foldLeftM(Chunk.empty[RawSection]) { case (r, s) =>
           s.map(r :+ _)
         }
 
     for {
-      modules            <- section(ComponentSection.module, WasmBinary.module, component.modules)
-      coreInstances      <- section(ComponentSection.coreInstance, instance, component.instances)
-      coreTypes          <- section(ComponentSection.coreType, coreType, component.coreTypes)
-      components         <- section(ComponentSection.component, Binary.component, component.components)
-      aliases            <- section(ComponentSection.alias, alias, component.aliases)
-      componentInstances <- section(ComponentSection.instance, componentInstance, component.componentInstances)
-      types              <- section(ComponentSection.typ, componentType, component.types)
-      canons             <- section(ComponentSection.canon, canon, component.canons)
-      starts             <- section(ComponentSection.start, componentStart, component.starts)
-      imports            <- section(ComponentSection.`import`, componentImport, component.imports)
-      exports            <- section(ComponentSection.`export`, componentExport, component.exports)
+      modules            <- section(RawComponentSection.module, WasmBinary.module, component.modules)
+      coreInstances      <- section(RawComponentSection.coreInstance, instance, component.instances)
+      coreTypes          <- section(RawComponentSection.coreType, coreType, component.coreTypes)
+      components         <- section(RawComponentSection.component, Binary.component, component.components)
+      aliases            <- section(RawComponentSection.alias, alias, component.aliases)
+      componentInstances <- section(RawComponentSection.instance, componentInstance, component.componentInstances)
+      types              <- section(RawComponentSection.typ, componentType, component.types)
+      canons             <- section(RawComponentSection.canon, canon, component.canons)
+      starts             <- section(RawComponentSection.start, componentStart, component.starts)
+      imports            <- section(RawComponentSection.`import`, componentImport, component.imports)
+      exports            <- section(RawComponentSection.`export`, componentExport, component.exports)
       custom             <- customSection
     } yield modules ++ aliases ++ coreInstances ++ coreTypes ++ components ++ componentInstances ++ types ++ canons ++ starts ++ imports ++ exports ++ custom // TODO: preserve original order
   }

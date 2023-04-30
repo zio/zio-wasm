@@ -31,7 +31,7 @@ object Example extends ZIOAppDefault {
 
   def wrapFunctions(module: Module, wrap: (FuncIdx, FuncType, Option[Name], Option[Name]) => Option[Expr]): Module = {
     // Creating wrapper functions
-    val originalFuncCount = module.funcs.length + module.importedFunctions.size
+    val originalFuncCount = module.lastFuncIdx.toInt + 1
     var nextFuncIdx       = FuncIdx.fromInt(originalFuncCount)
     var nextTypeIdx       = TypeIdx.fromInt(module.types.length)
     val newFuncs          = ChunkBuilder.make[Func]()
@@ -139,21 +139,18 @@ object Example extends ZIOAppDefault {
         case i: Instr              =>
           i
       }
-      .copy(
-        // Adding new functions and function types
-        types = module.types ++ newTypes.result(),
-        funcs = module.funcs ++ newFuncs.result(),
-        // Adding tables
-        tables = module.tables :+ Table(TableType(Limits(originalFuncCount, Some(originalFuncCount)), RefType.FuncRef)),
-        elems = module.elems :+ initializer,
-        // Replacing exports
-        exports = module.exports.map {
-          case Export(name, ExportDesc.Func(funcIdx)) =>
-            Export(name, ExportDesc.Func(mapping.getOrElse(funcIdx, funcIdx)))
-          case e: Export                              =>
-            e
-        }
-      )
+      .addTypes(newTypes.result())
+      .addFunctions(newFuncs.result())
+      .addTable(Table(TableType(Limits(originalFuncCount, Some(originalFuncCount)), RefType.FuncRef)))
+      ._1
+      .addElem(initializer)
+      ._1
+      .mapExports {
+        case Export(name, ExportDesc.Func(funcIdx)) =>
+          Export(name, ExportDesc.Func(mapping.getOrElse(funcIdx, funcIdx)))
+        case e: Export                              =>
+          e
+      }
   }
 
   override def run: ZIO[Any, Any, Any] =
@@ -168,6 +165,8 @@ object Example extends ZIOAppDefault {
 //      _       <- ZIO.debug(module2.toString)
       _       <- ZIO.debug(s"Print/parse cycle equality: ${module == module2}")
 
+      _                             <- ZIO.debug(module.getFunction(FuncIdx.fromInt(1)).toString)
+      _                             <- ZIO.debug(module.getFunction(FuncIdx.fromInt(10)).toString)
       importedFunctions              = module.importedFunctions
       _                             <- ZIO.debug("Imported functions")
       _                             <- ZIO.debug(importedFunctions.mkString("\n"))
@@ -192,12 +191,12 @@ object Example extends ZIOAppDefault {
 
       // NOTE: this example transformation results in invalid WASM because we don't have the parameters on stack for the second call
 //      module3 = module.mapInstr {
-//        case Instr.Call(fidx) if importedFunctions.keySet.contains(fidx) =>
-//          Instr.Block(BlockType.None, Chunk(Instr.Call(fidx), Instr.Call(fidx)))
-//        case i: Instr => i
-//      }
+//                  case Instr.Call(fidx) if importedFunctions.keySet.contains(fidx) =>
+//                    Instr.Block(BlockType.None, Chunk(Instr.Call(fidx), Instr.Call(fidx)))
+//                  case i: Instr                                                    => i
+//                }
 //      bytes3 <- ZIO.fromEither(Binary.module.print(module3))
-//      _ <- Files.writeBytes(Path("examples/wasm_game_of_life_bg_call_imported_twice.wasm"), bytes3)
+//      _      <- Files.writeBytes(Path("examples/wasm_game_of_life_bg_call_imported_twice.wasm"), bytes3)
 
       allCallIndirects = module.foldLeftRec(Chunk.empty[Instr.CallIndirect]) {
                            case (result, i @ Instr.CallIndirect(_, _)) => result :+ i

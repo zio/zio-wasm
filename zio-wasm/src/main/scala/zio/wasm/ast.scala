@@ -1,6 +1,7 @@
 package zio.wasm
 
 import zio.*
+import zio.wasm.componentmodel.{ComponentIndexSpace, ComponentSectionType}
 
 import java.nio.charset.StandardCharsets
 
@@ -10,7 +11,9 @@ import java.nio.charset.StandardCharsets
   * module collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports
   * and exports and provide initialization in the form of data and element segments, or a start function.
   */
-final case class Module(sections: Sections[CoreIndexSpace]) {
+final case class Module(sections: Sections[CoreIndexSpace]) extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentModuleSection
+
   lazy val types: Chunk[FuncType] = sections.filterBySectionType(SectionType.CoreTypeSection)
   lazy val funcs: Chunk[Func]     = {
     val funcTypes = sections.filterBySectionType(SectionType.CoreFuncSection)
@@ -126,7 +129,11 @@ final case class Module(sections: Sections[CoreIndexSpace]) {
 
   def addData(data: Data): (Module, DataIdx) =
     (
-      this.copy(sections = sections.addToLastGroup(data)),
+      this.copy(
+        sections = sections
+          .addToLastGroup(data)
+          .mapSectionBySectionType(SectionType.CoreDataCountSection)(dc => dc.copy(count = dc.count + 1))
+      ),
       lastDataIdx.next
     )
 

@@ -21,7 +21,7 @@ final case class Sections[IS <: IndexSpace](sections: Chunk[Section[IS]]) {
     }.toMap
 
   def filterByIndexSpace(indexSpace: IS): Chunk[Section[IS]] =
-    sections.filter(_.sectionType.indexSpace == indexSpace)
+    sections.filter(section => section.sectionType.tryGetIndexSpace(section) == Some(indexSpace))
 
   def filterBySectionType(sectionType: SectionType[IS]): Chunk[sectionType.Section] =
     sections.filter(_.sectionType == sectionType).map(_.asInstanceOf[sectionType.Section])

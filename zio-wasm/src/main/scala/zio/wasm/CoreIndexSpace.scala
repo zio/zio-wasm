@@ -1,6 +1,6 @@
 package zio.wasm
 
-trait CoreIndexSpace extends IndexSpace
+sealed trait CoreIndexSpace extends IndexSpace
 
 object CoreIndexSpace {
   object Type   extends CoreIndexSpace {

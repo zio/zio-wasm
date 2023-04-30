@@ -498,9 +498,9 @@ object Binary {
         case _                                => section.to(name ~ anyBytes).map { case (n, bs) => Chunk(Custom(n, bs)) }
       }
 
-      sections.forEach(loadSection).map { sections =>
-        Component(Sections.fromGrouped(sections))
-      }
+    sections.forEach(loadSection).map { sections =>
+      Component(Sections.fromGrouped(sections))
+    }
   }
 
   private def toSections(component: Component): Either[SyntaxError, Chunk[RawSection]] = {
@@ -539,7 +539,7 @@ object Binary {
           }
       }
 
-      component.sections.toGrouped.forEach { case (sectionType, sections) => encodeGroup(sectionType, sections) }
+    component.sections.toGrouped.forEach { case (sectionType, sections) => encodeGroup(sectionType, sections) }
   }
 
   private val componentValue: BinarySyntax[Component] =

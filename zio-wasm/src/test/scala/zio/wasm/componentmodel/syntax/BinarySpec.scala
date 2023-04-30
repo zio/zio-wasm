@@ -3,7 +3,7 @@ package zio.wasm.componentmodel.syntax
 import zio.{Chunk, ZIO}
 import zio.parser.*
 import zio.test.{Spec, TestAspect, ZIOSpecDefault, assertCompletes, assertTrue, check}
-import zio.wasm.{Name, Url}
+import zio.wasm.{Name, Sections, Url}
 import zio.wasm.componentmodel.{AstGen, Component, ComponentExport, ComponentExternalKind, ExternName, Instance}
 import zio.wasm.syntax.BinarySpec.suite
 import zio.wasm.syntax.Binary as WasmBinary
@@ -101,7 +101,7 @@ object BinarySpec extends ZIOSpecDefault {
           val result = bytes.flatMap(Binary.component.parseChunk)
           assertTrue(result == Right(component))
         }
-      } @@ TestAspect.samples(10) @@ TestAspect.ignore, // TODO: Enable after the section refactor
+      } @@ TestAspect.samples(10),
       test("instance example #1") {
         /*
         (core instance (;1;)
@@ -259,25 +259,18 @@ object BinarySpec extends ZIOSpecDefault {
       },
       test("component example #1") {
         val component  = Component(
-          modules = Chunk.empty,
-          instances = Chunk.empty,
-          coreTypes = Chunk.empty,
-          components = Chunk.empty,
-          componentInstances = Chunk.empty,
-          types = Chunk.empty,
-          aliases = Chunk.empty,
-          canons = Chunk.empty,
-          starts = Chunk.empty,
-          imports = Chunk.empty,
-          exports = Chunk(
-            ComponentExport(
-              ExternName(Name.fromString("0"), Url.fromString("0")),
-              ComponentExternalKind.Module,
-              0,
-              None
+          Sections.fromGrouped(
+            Chunk(
+              Chunk(
+                ComponentExport(
+                  ExternName(Name.fromString("0"), Url.fromString("0")),
+                  ComponentExternalKind.Module,
+                  0,
+                  None
+                )
+              )
             )
-          ),
-          custom = Chunk.empty
+          )
         )
         val bytes      = Binary.component.print(component)
         val component2 = bytes.flatMap { bs =>
@@ -285,7 +278,7 @@ object BinarySpec extends ZIOSpecDefault {
           Binary.component.parseChunk(bs)
         }
 
-        assertTrue(component == component2)
-      } @@ TestAspect.ignore                            // TODO: Enable after the section refactor
+        assertTrue(Right(component) == component2)
+      }
     ) @@ TestAspect.samples(1000)
 }

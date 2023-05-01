@@ -261,37 +261,37 @@ object Binary {
       Prefix.None -> WasmBinary.typeIdx.of[ComponentValType.Defined]
     )
 
-  private[wasm] val typeBounds: BinarySyntax[TypeBounds] =
-    casesByPrefix("typeBounds")(
-      Prefix(0x00) -> componentTypeIdx.of[TypeBounds.Eq],
-      Prefix(0x01) -> Syntax.succeed(TypeBounds.SubResource)
+  private[wasm] val typeBounds: BinarySyntax[TypeBound] =
+    casesByPrefix("typeBound")(
+      Prefix(0x00) -> componentTypeIdx.of[TypeBound.Eq],
+      Prefix(0x01) -> Syntax.succeed(TypeBound.SubResource)
     )
 
   private[wasm] val externDesc: BinarySyntax[ExternDesc] = {
     val parser =
       componentExternalKind.asParser.flatMap {
-        case ComponentExternalKind.Module    => moduleIdx.asParser.to[ExternDesc.Module]
-        case ComponentExternalKind.Func      => componentFuncIdx.asParser.to[ExternDesc.Func]
+        case ComponentExternalKind.Module    => componentTypeIdx.asParser.to[ExternDesc.Module]
+        case ComponentExternalKind.Func      => componentTypeIdx.asParser.to[ExternDesc.Func]
         case ComponentExternalKind.Value     => componentValType.asParser.to[ExternDesc.Val]
         case ComponentExternalKind.Type      => typeBounds.asParser.to[ExternDesc.Type]
-        case ComponentExternalKind.Instance  => instanceIdx.asParser.to[ExternDesc.Instance]
-        case ComponentExternalKind.Component => componentIdx.asParser.to[ExternDesc.Component]
+        case ComponentExternalKind.Instance  => componentTypeIdx.asParser.to[ExternDesc.Instance]
+        case ComponentExternalKind.Component => componentTypeIdx.asParser.to[ExternDesc.Component]
       }
 
     val printer =
       Printer.byValue {
         case ExternDesc.Module(idx)    =>
-          componentExternalKind.asPrinter(ComponentExternalKind.Module) ~ moduleIdx.asPrinter(idx)
+          componentExternalKind.asPrinter(ComponentExternalKind.Module) ~ componentTypeIdx.asPrinter(idx)
         case ExternDesc.Func(idx)      =>
-          componentExternalKind.asPrinter(ComponentExternalKind.Func) ~ componentFuncIdx.asPrinter(idx)
+          componentExternalKind.asPrinter(ComponentExternalKind.Func) ~ componentTypeIdx.asPrinter(idx)
         case ExternDesc.Val(tpe)       =>
           componentExternalKind.asPrinter(ComponentExternalKind.Value) ~ componentValType.asPrinter(tpe)
         case ExternDesc.Type(bounds)   =>
           componentExternalKind.asPrinter(ComponentExternalKind.Type) ~ typeBounds.asPrinter(bounds)
         case ExternDesc.Instance(idx)  =>
-          componentExternalKind.asPrinter(ComponentExternalKind.Instance) ~ instanceIdx.asPrinter(idx)
+          componentExternalKind.asPrinter(ComponentExternalKind.Instance) ~ componentTypeIdx.asPrinter(idx)
         case ExternDesc.Component(idx) =>
-          componentExternalKind.asPrinter(ComponentExternalKind.Component) ~ componentIdx.asPrinter(idx)
+          componentExternalKind.asPrinter(ComponentExternalKind.Component) ~ componentTypeIdx.asPrinter(idx)
       }
 
     (parser <=> printer) ?? "externDesc"

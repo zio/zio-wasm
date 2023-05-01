@@ -97,10 +97,18 @@ object ComponentSectionType {
 
   object ComponentCanonSection extends SectionType[ComponentIndexSpace] {
     override type Section = Canon
-    def ct: ClassTag[Section]                                   = implicitly[ClassTag[Canon]]
-    override def binaryId: SectionId                            = SectionId.fromByte(8)
-    override def indexSpace(canons: Canon): ComponentIndexSpace = ComponentIndexSpace.Canon
-    override def allowsGrouping: Boolean                        = true
+    def ct: ClassTag[Section]                                  = implicitly[ClassTag[Canon]]
+    override def binaryId: SectionId                           = SectionId.fromByte(8)
+    override def indexSpace(canon: Canon): ComponentIndexSpace =
+      canon match {
+        case Canon.Lift(funcIdx, opts, functionType) => ComponentIndexSpace.Func
+        case Canon.Lower(funcIdx, opts)              => ComponentIndexSpace.CoreFunc
+        case Canon.ResourceNew(typeIdx)              => ComponentIndexSpace.Func
+        case Canon.ResourceDrop(typ)                 => ComponentIndexSpace.Func
+        case Canon.ResourceRep(typeIdx)              => ComponentIndexSpace.Func
+      }
+
+    override def allowsGrouping: Boolean = true
   }
 
   object ComponentStartSection extends SectionType[ComponentIndexSpace] {
@@ -138,8 +146,16 @@ object ComponentSectionType {
     def ct: ClassTag[Section]                                               = implicitly[ClassTag[ComponentExport]]
     override def binaryId: SectionId                                        = SectionId.fromByte(11)
     override def indexSpace(`export`: ComponentExport): ComponentIndexSpace =
-      ComponentIndexSpace.Export
-    override def allowsGrouping: Boolean                                    = true
+      `export`.kind match {
+        case ComponentExternalKind.Component => ComponentIndexSpace.Component
+        case ComponentExternalKind.Type      => ComponentIndexSpace.Type
+        case ComponentExternalKind.Module    => ComponentIndexSpace.Module
+        case ComponentExternalKind.Func      => ComponentIndexSpace.Func
+        case ComponentExternalKind.Instance  => ComponentIndexSpace.Instance
+        case ComponentExternalKind.Value     => ComponentIndexSpace.Value
+      }
+
+    override def allowsGrouping: Boolean = true
   }
 
   object ComponentCustomSection extends SectionType[ComponentIndexSpace] {

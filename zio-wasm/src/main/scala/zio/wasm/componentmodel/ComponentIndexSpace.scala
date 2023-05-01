@@ -9,6 +9,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): ComponentFuncIdx =
       ComponentFuncIdx.fromInt(idx)
+
+    override def toInt(idx: ComponentFuncIdx): Int =
+      idx.toInt
   }
 
   object CoreType extends ComponentIndexSpace {
@@ -16,6 +19,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): TypeIdx =
       TypeIdx.fromInt(idx)
+
+    override def toInt(idx: TypeIdx): Int =
+      idx.toInt
   }
 
   object Type extends ComponentIndexSpace {
@@ -23,6 +29,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): ComponentTypeIdx =
       ComponentTypeIdx.fromInt(idx)
+
+    override def toInt(idx: ComponentTypeIdx): Int =
+      idx.toInt
   }
 
   object Module extends ComponentIndexSpace {
@@ -30,6 +39,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): ModuleIdx =
       ModuleIdx.fromInt(idx)
+
+    override def toInt(idx: ModuleIdx): Int =
+      idx.toInt
   }
 
   object Component extends ComponentIndexSpace {
@@ -37,6 +49,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): ComponentIdx =
       ComponentIdx.fromInt(idx)
+
+    override def toInt(idx: ComponentIdx): Int =
+      idx.toInt
   }
 
   object CoreInstance extends ComponentIndexSpace {
@@ -44,6 +59,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): CoreInstanceIdx =
       CoreInstanceIdx.fromInt(idx)
+
+    override def toInt(idx: CoreInstanceIdx): Int =
+      idx.toInt
   }
 
   object Instance extends ComponentIndexSpace {
@@ -51,6 +69,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): InstanceIdx =
       InstanceIdx.fromInt(idx)
+
+    override def toInt(idx: InstanceIdx): Int =
+      idx.toInt
   }
 
   object Value extends ComponentIndexSpace {
@@ -58,6 +79,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): ValueIdx =
       ValueIdx.fromInt(idx)
+
+    override def toInt(idx: ValueIdx): Int =
+      idx.toInt
   }
 
   object CoreTable extends ComponentIndexSpace {
@@ -65,6 +89,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): TableIdx =
       TableIdx.fromInt(idx)
+
+    override def toInt(idx: TableIdx): Int =
+      idx.toInt
   }
 
   object CoreFunc extends ComponentIndexSpace {
@@ -72,6 +99,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): FuncIdx =
       FuncIdx.fromInt(idx)
+
+    override def toInt(idx: FuncIdx): Int =
+      idx.toInt
   }
 
   object CoreGlobal extends ComponentIndexSpace {
@@ -79,6 +109,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): GlobalIdx =
       GlobalIdx.fromInt(idx)
+
+    override def toInt(idx: GlobalIdx): Int =
+      idx.toInt
   }
 
   object CoreMem extends ComponentIndexSpace {
@@ -86,13 +119,9 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): MemIdx =
       MemIdx.fromInt(idx)
-  }
 
-  object Canon extends ComponentIndexSpace {
-    override type Idx = CanonIdx
-
-    override def fromInt(idx: Int): CanonIdx =
-      CanonIdx.fromInt(idx)
+    override def toInt(idx: MemIdx): Int =
+      idx.toInt
   }
 
   object Start extends ComponentIndexSpace {
@@ -100,17 +129,22 @@ object ComponentIndexSpace {
 
     override def fromInt(idx: Int): StartIdx =
       StartIdx.fromInt(idx)
+
+    override def toInt(idx: StartIdx): Int =
+      idx.toInt
   }
 
   object Export extends ComponentIndexSpace {
     type Idx = ExportIdx
 
     override def fromInt(idx: Int): ExportIdx = ExportIdx.fromInt(idx)
+    override def toInt(idx: ExportIdx): Int   = idx.toInt
   }
 
   object Custom extends ComponentIndexSpace {
     type Idx = CustomIdx
 
     def fromInt(idx: Int): CustomIdx = CustomIdx.fromInt(idx)
+    def toInt(idx: CustomIdx): Int   = idx.toInt
   }
 }

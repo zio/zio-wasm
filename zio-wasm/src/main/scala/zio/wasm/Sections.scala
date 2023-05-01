@@ -6,10 +6,25 @@ import scala.annotation.tailrec
 
 final case class Sections[IS <: IndexSpace](sections: Chunk[Section[IS]]) {
 
+  def addToBeginning[S <: Section[IS]](newSection: S): Sections[IS] =
+    Sections(newSection +: sections)
+
+  def addToEnd[S <: Section[IS]](newSection: S): Sections[IS] =
+    Sections(sections :+ newSection)
+
+  def addToFirstGroupStart[S <: Section[IS]](newSection: S): Sections[IS] = {
+    val firstOfType = sections.indexWhere(_.sectionType == newSection.sectionType)
+    if (firstOfType == -1) {
+      addToBeginning(newSection)
+    } else {
+      Sections((sections.take(firstOfType) :+ newSection) ++ sections.drop(firstOfType))
+    }
+  }
+
   def addToLastGroup[S <: Section[IS]](newSection: S): Sections[IS] = {
     val lastOfType = sections.lastIndexWhere(_.sectionType == newSection.sectionType)
     if (lastOfType == -1) {
-      Sections(sections :+ newSection)
+      addToEnd(newSection)
     } else {
       Sections((sections.take(lastOfType + 1) :+ newSection) ++ sections.drop(lastOfType + 1))
     }
@@ -33,6 +48,21 @@ final case class Sections[IS <: IndexSpace](sections: Chunk[Section[IS]]) {
       case section if section.sectionType == sectionType => f(section.asInstanceOf[sectionType.Section])
       case section                                       => section
     })
+
+  def moveToEnd(section: Section[IS]): Sections[IS] =
+    Sections(
+      sections.filterNot(_ == section) :+ section
+    )
+
+  def replace[S <: Section[IS]](indexSpace: IS)(idx: indexSpace.Idx, section: S): Sections[IS] = {
+    assert(section ne null)
+    val indexedSections = sections.zipWithIndex.filter { case (section, _) =>
+      section.sectionType.tryGetIndexSpace(section) == Some(indexSpace)
+    }
+    val (_, sectionIdx) = indexedSections(indexSpace.toInt(idx))
+    val updatedSections = sections.updated(sectionIdx, section)
+    Sections(updatedSections)
+  }
 
   def toGrouped: Chunk[(SectionType[IS], Chunk[Section[IS]])] = {
     @tailrec

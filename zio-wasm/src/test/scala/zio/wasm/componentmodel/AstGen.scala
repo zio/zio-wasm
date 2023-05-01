@@ -125,20 +125,20 @@ object AstGen {
       WasmAstGen.typeIdx.map(ComponentValType.Defined.apply)
     )
 
-  val typeBounds: Gen[Any, TypeBounds] =
+  val typeBounds: Gen[Any, TypeBound] =
     Gen.oneOf(
-      componentTypeIdx.map(TypeBounds.Eq.apply),
-      Gen.const(TypeBounds.SubResource)
+      componentTypeIdx.map(TypeBound.Eq.apply),
+      Gen.const(TypeBound.SubResource)
     )
 
   val externDesc: Gen[Any, ExternDesc] =
     Gen.oneOf(
-      moduleIdx.map(ExternDesc.Module.apply),
-      componentFuncIdx.map(ExternDesc.Func.apply),
+      componentTypeIdx.map(ExternDesc.Module.apply),
+      componentTypeIdx.map(ExternDesc.Func.apply),
       componentValType.map(ExternDesc.Val.apply),
       typeBounds.map(ExternDesc.Type.apply),
-      instanceIdx.map(ExternDesc.Instance.apply),
-      componentIdx.map(ExternDesc.Component.apply)
+      componentTypeIdx.map(ExternDesc.Instance.apply),
+      componentTypeIdx.map(ExternDesc.Component.apply)
     )
 
   val componentExport: Gen[Any, ComponentExport] =

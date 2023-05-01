@@ -10,6 +10,137 @@ import java.nio.charset.StandardCharsets
 
 final case class Component(sections: Sections[ComponentIndexSpace]) extends Section[ComponentIndexSpace] {
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentSection
+
+  lazy val imports: Chunk[ComponentImport]      =
+    sections.filterBySectionType(ComponentSectionType.ComponentImportSection)
+  lazy val exports: Chunk[ComponentExport]      =
+    sections.filterBySectionType(ComponentSectionType.ComponentExportSection)
+  lazy val coreInstances: Chunk[Instance]       =
+    sections.filterBySectionType(ComponentSectionType.ComponentCoreInstanceSection)
+  lazy val instances: Chunk[ComponentInstance]  =
+    sections.filterBySectionType(ComponentSectionType.ComponentInstanceSection)
+  lazy val componentTypes: Chunk[ComponentType] =
+    sections.filterBySectionType(ComponentSectionType.ComponentTypeSection)
+  lazy val coreTypes: Chunk[CoreType]           =
+    sections.filterBySectionType(ComponentSectionType.ComponentCoreTypeSection)
+  lazy val canons: Chunk[Canon]                 =
+    sections.filterBySectionType(ComponentSectionType.ComponentCanonSection)
+
+  lazy val coreInstanceIndex  = sections.indexed(ComponentIndexSpace.CoreInstance)
+  lazy val instanceIndex      = sections.indexed(ComponentIndexSpace.Instance)
+  lazy val componentTypeIndex = sections.indexed(ComponentIndexSpace.Type)
+  lazy val coreFuncIndex      = sections.indexed(ComponentIndexSpace.CoreFunc)
+  lazy val funcIndex          = sections.indexed(ComponentIndexSpace.Func)
+  lazy val componentIndex     = sections.indexed(ComponentIndexSpace.Component)
+  lazy val valueIndex         = sections.indexed(ComponentIndexSpace.Value)
+  lazy val exportIndex        = sections.indexed(ComponentIndexSpace.Export)
+
+  lazy val lastComponentIdx: ComponentIdx         = ComponentIdx.fromInt(componentIndex.size - 1)
+  lazy val lastComponentTypeIdx: ComponentTypeIdx = ComponentTypeIdx.fromInt(componentTypeIndex.size - 1)
+  lazy val lastValueIdx: ValueIdx                 = ValueIdx.fromInt(valueIndex.size - 1)
+  lazy val lastExportIdx: ExportIdx               = ExportIdx.fromInt(exportIndex.size - 1)
+
+  def addComponent(component: Component): (ComponentIdx, Component) =
+    (
+      lastComponentIdx.next,
+      this.copy(sections = sections.addToEnd(component)),
+    )
+
+  def addComponentImport(componentImport: ComponentImport): (ComponentTypeIdx | ValueIdx, Component) = {
+    val updatedComponent                 = this.copy(sections = sections.addToLastGroup(componentImport))
+    val idx: ComponentTypeIdx | ValueIdx = componentImport.desc match {
+      case ExternDesc.Val(_) =>
+        updatedComponent.lastValueIdx
+      case _                 =>
+        updatedComponent.lastComponentTypeIdx
+    }
+    (idx, updatedComponent)
+  }
+
+  def addComponentExport(componentExport: ComponentExport): (ExportIdx, Component) =
+    (
+      lastExportIdx.next,
+      this.copy(sections = sections.addToLastGroup(componentExport)),
+    )
+
+  def idxOf(componentType: ComponentType): Option[ComponentTypeIdx] =
+    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
+
+  def idxOf(componentType: ComponentImport): Option[ComponentTypeIdx] =
+    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
+
+  def idxOf(componentType: ComponentExport): Option[ComponentTypeIdx] =
+    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
+
+  def idxOf(componentType: Alias): Option[ComponentTypeIdx] =
+    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
+
+  /** WARNING: This reindexes all the existing component types */
+  def insertComponentTypeToBeginning(
+      componentType: ComponentType | ComponentImport | ComponentExport | Alias
+  ): (ComponentTypeIdx, Component) =
+    componentType match {
+      case ct: ComponentType   =>
+        val updated = this.copy(sections = sections.addToFirstGroupStart(ct))
+        (updated.idxOf(ct).get, updated)
+      case ci: ComponentImport =>
+        val updated = this.copy(sections = sections.addToFirstGroupStart(ci))
+        (updated.idxOf(ci).get, updated)
+      case ce: ComponentExport =>
+        val updated = this.copy(sections = sections.addToFirstGroupStart(ce))
+        (updated.idxOf(ce).get, updated)
+      case a: Alias            =>
+        val updated = this.copy(sections = sections.addToFirstGroupStart(a))
+        (updated.idxOf(a).get, updated)
+    }
+
+  def addComponentType(
+      componentType: ComponentType | ComponentImport | ComponentExport | Alias
+  ): (ComponentTypeIdx, Component) =
+    (
+      lastComponentTypeIdx.next,
+      this.copy(sections = componentType match {
+        case ct: ComponentType   => sections.addToLastGroup(ct)
+        case ci: ComponentImport => sections.addToLastGroup(ci)
+        case ce: ComponentExport => sections.addToLastGroup(ce)
+        case a: Alias            => sections.addToLastGroup(a)
+      }),
+    )
+
+  def getComponent(idx: ComponentIdx): Option[Component] =
+    componentIndex.get(idx).asInstanceOf[Option[Component]]
+
+  def getCoreInstance(idx: CoreInstanceIdx): Option[Instance]  =
+    coreInstanceIndex.get(idx).asInstanceOf[Option[Instance]]
+  def getInstance(idx: InstanceIdx): Option[ComponentInstance] =
+    instanceIndex.get(idx).asInstanceOf[Option[ComponentInstance]]
+
+  def getComponentType(idx: ComponentTypeIdx): Option[ComponentType | ComponentImport | Alias] =
+    componentTypeIndex.get(idx).asInstanceOf[Option[ComponentType | ComponentImport | Alias]]
+
+  def mapAllComponentTypes(f: ComponentType => ComponentType): Component =
+    this.copy(
+      sections.mapSectionBySectionType(ComponentSectionType.ComponentTypeSection)(f)
+    )
+
+  def moveToEnd(idx: ComponentIdx): Component =
+    getComponent(idx) match {
+      case Some(section) => this.copy(sections = sections.moveToEnd(section))
+      case None          => this
+    }
+
+  def replaceComponent(idx: ComponentIdx, newComponent: Component): Component =
+    this.copy(sections = sections.replace(ComponentIndexSpace.Component)(idx, newComponent))
+
+  def replaceComponentType(idx: ComponentTypeIdx, newComponentType: ComponentType): Component =
+    this.copy(sections = sections.replace(ComponentIndexSpace.Type)(idx, newComponentType))
+
+  def replaceComponentType(idx: ComponentTypeIdx, alias: Alias): Component =
+    this.copy(sections = sections.replace(ComponentIndexSpace.Type)(idx, alias))
+}
+
+object Component {
+  val empty: Component = Component(Sections(Chunk.empty))
 }
 
 enum Instance extends Section[ComponentIndexSpace] {
@@ -113,15 +244,15 @@ final case class ComponentExport(
 }
 
 enum ExternDesc {
-  case Module(moduleIdx: ModuleIdx)
-  case Func(funcIdx: ComponentFuncIdx)
+  case Module(typeIdx: ComponentTypeIdx)
+  case Func(typeIdx: ComponentTypeIdx)
   case Val(valType: ComponentValType)
-  case Type(typeBounds: TypeBounds)
-  case Instance(instanceIdx: InstanceIdx)
-  case Component(componentIdx: ComponentIdx)
+  case Type(typeBounds: TypeBound)
+  case Instance(typeIdx: ComponentTypeIdx)
+  case Component(typeIdx: ComponentTypeIdx)
 }
 
-enum TypeBounds {
+enum TypeBound {
   case Eq(typeIdx: ComponentTypeIdx)
   case SubResource
 }
@@ -153,6 +284,28 @@ enum ComponentType extends Section[ComponentIndexSpace] {
   case Resource(representation: ValType, destructor: Option[FuncIdx])
 
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentTypeSection
+
+  /** Collect all the aliases in this type tree.
+    *
+    * For each Alias it also returns the _depth_ of the alias in the tree, so the Alias.Outer can be interpreted
+    * properly. The top level component/instance type's alias members will have depth 1, so an outer alias ct=1 refers
+    * to this component type's owner.
+    */
+  def collectAliases(atLevel: Int = 1): Chunk[(Int, Alias)] =
+    this match {
+      case ComponentType.Component(types) => types.flatMap(_.collectAliases(atLevel))
+      case ComponentType.Instance(types)  => types.flatMap(_.collectAliases(atLevel))
+      case _                              => Chunk.empty
+    }
+
+  def mapAliases(f: (Int, Alias) => Alias, atLevel: Int = 1): ComponentType =
+    this match {
+      case ComponentType.Component(types) =>
+        ComponentType.Component(types.map(_.mapAliases(f, atLevel)))
+      case ComponentType.Instance(types)  =>
+        ComponentType.Instance(types.map(_.mapAliases(f, atLevel)))
+      case _                              => this
+    }
 }
 
 final case class ComponentFuncType(params: Chunk[(Name, ComponentValType)], result: ComponentFuncResult)
@@ -167,6 +320,23 @@ enum InstanceTypeDeclaration {
   case Type(typ: ComponentType)
   case Alias(alias: zio.wasm.componentmodel.Alias)
   case Export(name: ExternName, desc: ExternDesc)
+
+  def collectAliases(atLevel: Int): Chunk[(Int, zio.wasm.componentmodel.Alias)] =
+    this match {
+      case InstanceTypeDeclaration.Alias(alias) => Chunk((atLevel, alias))
+      case InstanceTypeDeclaration.Type(typ)    => typ.collectAliases(atLevel + 1)
+      case _                                    => Chunk.empty
+    }
+
+  def mapAliases(
+      f: (Int, zio.wasm.componentmodel.Alias) => zio.wasm.componentmodel.Alias,
+      atLevel: Int
+  ): InstanceTypeDeclaration =
+    this match {
+      case InstanceTypeDeclaration.Alias(alias) => InstanceTypeDeclaration.Alias(f(atLevel, alias))
+      case InstanceTypeDeclaration.Type(typ)    => InstanceTypeDeclaration.Type(typ.mapAliases(f, atLevel + 1))
+      case _                                    => this
+    }
 }
 
 enum ComponentTypeDeclaration {
@@ -175,6 +345,23 @@ enum ComponentTypeDeclaration {
   case Alias(alias: zio.wasm.componentmodel.Alias)
   case Import(imp: ComponentImport)
   case Export(name: ExternName, desc: ExternDesc)
+
+  def collectAliases(atLevel: Int): Chunk[(Int, zio.wasm.componentmodel.Alias)] =
+    this match {
+      case ComponentTypeDeclaration.Alias(alias) => Chunk((atLevel, alias))
+      case ComponentTypeDeclaration.Type(typ)    => typ.collectAliases(atLevel + 1)
+      case _                                     => Chunk.empty
+    }
+
+  def mapAliases(
+      f: (Int, zio.wasm.componentmodel.Alias) => zio.wasm.componentmodel.Alias,
+      atLevel: Int
+  ): ComponentTypeDeclaration =
+    this match {
+      case ComponentTypeDeclaration.Alias(alias) => ComponentTypeDeclaration.Alias(f(atLevel, alias))
+      case ComponentTypeDeclaration.Type(typ)    => ComponentTypeDeclaration.Type(typ.mapAliases(f, atLevel + 1))
+      case _                                     => this
+    }
 }
 
 enum ComponentDefinedType {
@@ -301,17 +488,6 @@ object ValueIdx {
 
   extension (idx: ValueIdx) {
     def next: ValueIdx = idx + 1
-    def toInt: Int     = idx
-  }
-}
-
-type CanonIdx = CanonIdx.CanonIdx
-object CanonIdx {
-  opaque type CanonIdx = Int
-  def fromInt(value: Int): CanonIdx = value
-
-  extension (idx: CanonIdx) {
-    def next: CanonIdx = idx + 1
     def toInt: Int     = idx
   }
 }

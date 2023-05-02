@@ -11,6 +11,11 @@ object GraphSpec extends ZIOSpecDefault {
       test("topological sort") {
         val g1 = Graph(
           Chunk(
+            Edge("a", "a"),
+            Edge("b", "b"),
+            Edge("c", "c"),
+            Edge("d", "d"),
+            Edge("e", "e"),
             Edge("a", "b"),
             Edge("a", "c"),
             Edge("d", "b"),
@@ -27,7 +32,7 @@ object GraphSpec extends ZIOSpecDefault {
         )
 
         assertTrue(
-          g1.topologicalSort == Some(Chunk("a", "c", "d", "b")),
+          g1.topologicalSort == Some(Chunk("e", "a", "c", "d", "b")),
           g2.topologicalSort == None
         )
       }

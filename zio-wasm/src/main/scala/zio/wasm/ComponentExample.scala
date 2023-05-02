@@ -11,15 +11,7 @@ import zio.wasm.componentmodel.syntax.Binary
 
 object ComponentExample extends ZIOAppDefault {
 
-  final case class MoveOutTypeResult(outerTypeIdx: ComponentTypeIdx, additionalTypes: Set[ComponentTypeIdx]) {
-    def updatedDesc(desc: ExternDesc): ExternDesc =
-      desc match {
-        case ExternDesc.Module(_)    => ExternDesc.Module(outerTypeIdx)
-        case ExternDesc.Func(_)      => ExternDesc.Func(outerTypeIdx)
-        case ExternDesc.Instance(_)  => ExternDesc.Instance(outerTypeIdx)
-        case ExternDesc.Component(_) => ExternDesc.Component(outerTypeIdx)
-      }
-  }
+  final case class MoveOutTypeResult(outerTypeIdx: ComponentTypeIdx, additionalTypes: Set[ComponentTypeIdx])
 
   def moveAllTypesFromInnerComponent(
       innerComponentIdx: ComponentIdx,
@@ -28,7 +20,7 @@ object ComponentExample extends ZIOAppDefault {
     val orderedTypes = Chunk.fromIterable(types)
     ZPure
       .foreach(orderedTypes) { componentTypeIdx =>
-        moveTypeFromInnerComponent(innerComponentIdx, componentTypeIdx, ComponentBuilder.InsertionPoint.FirstOfType)
+        moveTypeFromInnerComponent(innerComponentIdx, componentTypeIdx)
       }
       .flatMap { results =>
         val additionalTypes = results.map(_.additionalTypes).toSet.flatten.diff(types)
@@ -40,11 +32,8 @@ object ComponentExample extends ZIOAppDefault {
       }
   }
 
-  def moveTypeFromInnerComponent(
-      innerComponentIdx: ComponentIdx,
-      desc: ExternDesc
-  ): ComponentBuilder[MoveOutTypeResult] = {
-    val innerTypeIdx = desc match {
+  def externDescTypeIdx(desc: ExternDesc): Option[ComponentTypeIdx] =
+    desc match {
       case ExternDesc.Module(typeIdx)    => Some(typeIdx)
       case ExternDesc.Func(typeIdx)      => Some(typeIdx)
       case ExternDesc.Val(valType)       => None
@@ -52,21 +41,10 @@ object ComponentExample extends ZIOAppDefault {
       case ExternDesc.Instance(typeIdx)  => Some(typeIdx)
       case ExternDesc.Component(typeIdx) => Some(typeIdx)
     }
-    innerTypeIdx match {
-      case Some(innerTypeIdx) =>
-        moveTypeFromInnerComponent(innerComponentIdx, innerTypeIdx, ComponentBuilder.InsertionPoint.LastOfType)
-      case None               =>
-        // TODO: just copy the whole referenced item?
-        ???
-    }
-  }
 
-  // TODO: Instead of immediately inserting the type to the outer component, we need to maintain
-  // TODO: a list of inserted types, and then insert them in the correct order at the end.
   def moveTypeFromInnerComponent(
       innerComponentIdx: ComponentIdx,
-      innerTypeIdx: ComponentTypeIdx,
-      insertionPoint: ComponentBuilder.InsertionPoint
+      innerTypeIdx: ComponentTypeIdx
   ): ComponentBuilder[MoveOutTypeResult] = {
     import ComponentBuilder.*
 
@@ -77,7 +55,23 @@ object ComponentExample extends ZIOAppDefault {
     for {
       innerComponent       <- getComponent(innerComponentIdx)
       innerType             = innerComponent.getComponentType(innerTypeIdx).get
-      outerTypeIdx         <- addComponentType(innerType, insertionPoint)
+      // TODO: We need to replace the IDs in the inner section to the already known "fake ones" in order to maintain the dependency graph
+      outerTypeIdx         <-
+        innerType match {
+          case ct: ComponentType   =>
+            addComponentType(ct)
+          case ci: ComponentImport =>
+            addComponentImport(ci).flatMap {
+              case SectionReference.ComponentType(typeIdx) => ZPure.succeed(typeIdx)
+              case _                                       => ZPure.fail("Unexpected import type, not importing a component type")
+            }
+          case alias: Alias        =>
+            println(s"Adding alias: $alias")
+            addAlias(alias).flatMap {
+              case SectionReference.ComponentType(typeIdx) => ZPure.succeed(typeIdx)
+              case _                                       => ZPure.fail("Unexpected alias type, not refering to a component type")
+            }
+        }
       _                    <- modifyComponent(innerComponentIdx) {
                                 for {
                                   _ <- replaceComponentType(
@@ -126,44 +120,51 @@ object ComponentExample extends ZIOAppDefault {
         componentIdx <- addComponent(component)
         _            <- log(s"Added the original component as $componentIdx")
 
-        _         <- addManyComponentTypes {
-                       for {
-                         // Copying all component imports of the inner component
-                         results        <- ZPure.foreach(component.imports) { componentImport =>
-                                             for {
-                                               result <- moveTypeFromInnerComponent(componentIdx, componentImport.desc)
-                                               id     <- addComponentImport(
-                                                           componentImport.copy(desc = result.updatedDesc(componentImport.desc))
-                                                         )
-                                             } yield (id, result.additionalTypes)
-                                           }
-                         importIds       = results.map(_._1)
-                         additionalTypes = results.flatMap(_._2).toSet
-                         _              <- log(s"Added ${importIds.size} imports: ${importIds}")
+        _ <- addManyComponentTypes {
+               for {
+                 // Copying all component imports of the inner component
+                 results        <- ZPure.foreach(component.imports) { componentImport =>
+                                     val oldId = component.sectionReference(componentImport)
+                                     addComponentImport(componentImport).map { newId =>
+                                       (oldId, newId, externDescTypeIdx(componentImport.desc).toList.toSet)
+                                     }
+                                   }
+                 oldImportIds    = results.map(_._1)
+                 importIds       = results.map(_._2)
+                 additionalTypes = results.flatMap(_._3).toSet
+                 _              <- log(s"Added ${importIds.size} imports: ${importIds} (previously: ${oldImportIds}")
 
-                         // The types in additionalTypes also have to be copied to top level as they are referenced by aliases
-                         // in the already copied types.
-                         additionalIds <- moveAllTypesFromInnerComponent(componentIdx, additionalTypes)
-                         _             <- log(s"Moved ${additionalIds.size} additional types to the outer component: ${additionalIds}")
-                         // At this point all outer aliases pointing to the top level in the the added types must be one of those that
-                         // has been moved, so we have to update them:
-                         _             <- modifyAllComponentTypes { ct =>
-                                            ct.mapAliases {
-                                              case (level, outer: Alias.Outer) if outer.target.ct == level =>
-                                                outer.copy(target =
-                                                  AliasTarget(level, additionalIds(ComponentTypeIdx.fromInt(outer.target.idx)).toInt)
-                                                )
-                                              case (_, other: Alias)                                       =>
-                                                other
-                                            }
-                                          }
-                       } yield ()
-                     }
+                 // The types in additionalTypes also have to be copied to top level as they are referenced by the imports or
+                 // aliases in the already copied types.
+                 additionalIds <- moveAllTypesFromInnerComponent(componentIdx, additionalTypes)
+                 _             <- log(s"Moved ${additionalIds.size} additional types to the outer component: ${additionalIds}")
+                 // At this point all outer aliases pointing to the top level in the the added types must be one of those that
+                 // has been moved, so we have to update them:
+                 _             <- modifyAllComponentTypes { ct =>
+                                    ct.mapAliases {
+                                      case (level, outer: Alias.Outer) if outer.target.ct == level =>
+                                        outer.copy(target =
+                                          AliasTarget(level, additionalIds(ComponentTypeIdx.fromInt(outer.target.idx)).toInt)
+                                        )
+                                      case (_, other: Alias)                                       =>
+                                        other
+                                    }
+                                  }
+                 // And also we have to update refernces to the moved imports and types
+                 mapper         = SectionReference.Mapper.fromPairs(
+                                    oldImportIds.zip(importIds) ++
+                                      Chunk.fromIterable(additionalIds).map { case (oldTypeIdx, newTypeIdx) =>
+                                        SectionReference.ComponentType(oldTypeIdx) -> SectionReference.ComponentType(newTypeIdx)
+                                      }
+                                  )
+                 _             <- mapAllSectionReference(mapper)
+               } yield ()
+             }
         // Copying all component exports of the inner component
-        exportIds <- ZPure.foreach(component.exports) { componentExport =>
-                       addComponentExport(componentExport)
-                     }
-        _         <- log(s"Added ${exportIds.size} exports: ${exportIds}")
+//        exportIds <- ZPure.foreach(component.exports) { componentExport =>
+//                       addComponentExport(componentExport)
+//                     }
+//        _         <- log(s"Added ${exportIds.size} exports: ${exportIds}")
 
         // Moving the final inner component to the end, because it needs to be able to refer to outer types
         _ <- moveToEnd(componentIdx)

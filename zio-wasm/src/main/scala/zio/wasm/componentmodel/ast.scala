@@ -2,8 +2,10 @@ package zio.wasm.componentmodel
 
 import zio.*
 import zio.wasm.*
+import zio.wasm.componentmodel.InsertionPoint.{End, LastOfGroup}
 
 import java.nio.charset.StandardCharsets
+import scala.reflect.ClassTag
 
 // Based on https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
 // and https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasmparser/src/readers/component/
@@ -34,11 +36,15 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   lazy val componentIndex     = sections.indexed(ComponentIndexSpace.Component)
   lazy val valueIndex         = sections.indexed(ComponentIndexSpace.Value)
   lazy val exportIndex        = sections.indexed(ComponentIndexSpace.Export)
+  lazy val moduleIndex        = sections.indexed(ComponentIndexSpace.Module)
 
   lazy val lastComponentIdx: ComponentIdx         = ComponentIdx.fromInt(componentIndex.size - 1)
+  lazy val lastComponentFuncIdx: ComponentFuncIdx = ComponentFuncIdx.fromInt(funcIndex.size - 1)
   lazy val lastComponentTypeIdx: ComponentTypeIdx = ComponentTypeIdx.fromInt(componentTypeIndex.size - 1)
-  lazy val lastValueIdx: ValueIdx                 = ValueIdx.fromInt(valueIndex.size - 1)
   lazy val lastExportIdx: ExportIdx               = ExportIdx.fromInt(exportIndex.size - 1)
+  lazy val lastInstanceIdx: InstanceIdx           = InstanceIdx.fromInt(instanceIndex.size - 1)
+  lazy val lastModuleIdx: ModuleIdx               = ModuleIdx.fromInt(instanceIndex.size - 1)
+  lazy val lastValueIdx: ValueIdx                 = ValueIdx.fromInt(valueIndex.size - 1)
 
   def addComponent(component: Component): (ComponentIdx, Component) =
     (
@@ -46,14 +52,33 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
       this.copy(sections = sections.addToEnd(component)),
     )
 
-  def addComponentImport(componentImport: ComponentImport): (ComponentTypeIdx | ValueIdx, Component) = {
-    val updatedComponent                 = this.copy(sections = sections.addToLastGroup(componentImport))
-    val idx: ComponentTypeIdx | ValueIdx = componentImport.desc match {
-      case ExternDesc.Val(_) =>
-        updatedComponent.lastValueIdx
-      case _                 =>
-        updatedComponent.lastComponentTypeIdx
-    }
+  def addComponentImport(
+      componentImport: ComponentImport,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): (SectionReference, Component) = {
+    val updatedComponent =
+      insertionPoint match {
+        case InsertionPoint.LastOfGroup =>
+          this.copy(sections = sections.addToLastGroup(componentImport))
+        case InsertionPoint.End         =>
+          this.copy(sections = sections.addToEnd(componentImport))
+      }
+
+    val idx =
+      componentImport.desc match {
+        case ExternDesc.Val(_)       =>
+          SectionReference.Value(updatedComponent.lastValueIdx.next)
+        case ExternDesc.Type(_)      =>
+          SectionReference.ComponentType(updatedComponent.lastComponentTypeIdx.next)
+        case ExternDesc.Func(_)      =>
+          SectionReference.ComponentFunc(updatedComponent.lastComponentFuncIdx.next)
+        case ExternDesc.Module(_)    =>
+          SectionReference.Module(updatedComponent.lastModuleIdx.next)
+        case ExternDesc.Instance(_)  =>
+          SectionReference.Instance(updatedComponent.lastInstanceIdx.next)
+        case ExternDesc.Component(_) =>
+          SectionReference.Component(updatedComponent.lastComponentIdx.next)
+      }
     (idx, updatedComponent)
   }
 
@@ -63,65 +88,117 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
       this.copy(sections = sections.addToLastGroup(componentExport)),
     )
 
-  def idxOf(componentType: ComponentType): Option[ComponentTypeIdx] =
-    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
-
-  def idxOf(componentType: ComponentImport): Option[ComponentTypeIdx] =
-    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
-
-  def idxOf(componentType: ComponentExport): Option[ComponentTypeIdx] =
-    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
-
-  def idxOf(componentType: Alias): Option[ComponentTypeIdx] =
-    componentTypeIndex.toList.collectFirst { case (idx, section) if section == componentType => idx }
-
-  /** WARNING: This reindexes all the existing component types */
-  def insertComponentTypeToBeginning(
-      componentType: ComponentType | ComponentImport | ComponentExport | Alias
-  ): (ComponentTypeIdx, Component) =
-    componentType match {
-      case ct: ComponentType   =>
-        val updated = this.copy(sections = sections.addToFirstGroupStart(ct))
-        (updated.idxOf(ct).get, updated)
-      case ci: ComponentImport =>
-        val updated = this.copy(sections = sections.addToFirstGroupStart(ci))
-        (updated.idxOf(ci).get, updated)
-      case ce: ComponentExport =>
-        val updated = this.copy(sections = sections.addToFirstGroupStart(ce))
-        (updated.idxOf(ce).get, updated)
-      case a: Alias            =>
-        val updated = this.copy(sections = sections.addToFirstGroupStart(a))
-        (updated.idxOf(a).get, updated)
-    }
-
   def addComponentType(
-      componentType: ComponentType | ComponentImport | ComponentExport | Alias
+      componentType: ComponentType,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): (ComponentTypeIdx, Component) =
     (
       lastComponentTypeIdx.next,
-      this.copy(sections = componentType match {
-        case ct: ComponentType   => sections.addToLastGroup(ct)
-        case ci: ComponentImport => sections.addToLastGroup(ci)
-        case ce: ComponentExport => sections.addToLastGroup(ce)
-        case a: Alias            => sections.addToLastGroup(a)
-      }),
+      insertionPoint match {
+        case InsertionPoint.LastOfGroup => this.copy(sections = sections.addToLastGroup(componentType))
+        case InsertionPoint.End         => this.copy(sections = sections.addToEnd(componentType))
+      }
+    )
+
+  def addAlias(
+      alias: Alias,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): (SectionReference, Component) =
+    (
+      ComponentSectionType.ComponentAliasSection.indexSpace(alias) match {
+        case ComponentIndexSpace.Component  => SectionReference.Component(lastComponentIdx.next)
+        case ComponentIndexSpace.Instance   => SectionReference.Instance(lastInstanceIdx.next)
+        case ComponentIndexSpace.Module     => SectionReference.Module(lastModuleIdx.next)
+        case ComponentIndexSpace.Type       => SectionReference.ComponentType(lastComponentTypeIdx.next)
+        case ComponentIndexSpace.Func       => SectionReference.ComponentFunc(lastComponentFuncIdx.next)
+        case ComponentIndexSpace.Value      => SectionReference.Value(lastValueIdx.next)
+        case ComponentIndexSpace.CoreType   => ??? // TODO
+        case ComponentIndexSpace.CoreTable  => ??? // TODO
+        case ComponentIndexSpace.CoreFunc   => ??? // TODO
+        case ComponentIndexSpace.CoreGlobal => ??? // TODO
+        case ComponentIndexSpace.CoreMem    => ??? // TODO
+      },
+      insertionPoint match {
+        case LastOfGroup => this.copy(sections = sections.addToLastGroup(alias))
+        case End         => this.copy(sections = sections.addToEnd(alias))
+      }
     )
 
   def getComponent(idx: ComponentIdx): Option[Component] =
     componentIndex.get(idx).asInstanceOf[Option[Component]]
 
-  def getCoreInstance(idx: CoreInstanceIdx): Option[Instance]  =
+  def getCoreInstance(idx: CoreInstanceIdx): Option[Instance] =
     coreInstanceIndex.get(idx).asInstanceOf[Option[Instance]]
+
   def getInstance(idx: InstanceIdx): Option[ComponentInstance] =
     instanceIndex.get(idx).asInstanceOf[Option[ComponentInstance]]
 
   def getComponentType(idx: ComponentTypeIdx): Option[ComponentType | ComponentImport | Alias] =
     componentTypeIndex.get(idx).asInstanceOf[Option[ComponentType | ComponentImport | Alias]]
 
+  def mapAllAlias(f: Alias => Alias): Component =
+    this.copy(
+      sections.mapSectionBySectionType(ComponentSectionType.ComponentAliasSection)(f)
+    )
+
   def mapAllComponentTypes(f: ComponentType => ComponentType): Component =
     this.copy(
       sections.mapSectionBySectionType(ComponentSectionType.ComponentTypeSection)(f)
     )
+
+  def mapAllComponenentTypeIdx(f: ComponentTypeIdx => ComponentTypeIdx, level: Int = 1): Component =
+    mapAllSectionReference(new SectionReference.Mapper {
+      override def map[S <: SectionReference: ClassTag](value: S): S =
+        value match {
+          case SectionReference.ComponentType(idx) =>
+            SectionReference.ComponentType(f(idx)).asInstanceOf[S]
+          case other: S                            =>
+            other
+        }
+    })
+
+  def mapAllSectionReference(f: SectionReference.Mapper): Component =
+    this.copy(
+      sections.map(mapSectionReference(_, f))
+    )
+
+  // TODO: this does not belong to here
+  def mapSectionReference(
+      section: Section[ComponentIndexSpace],
+      f: SectionReference.Mapper
+  ): Section[ComponentIndexSpace] =
+    section match {
+      case ct: ComponentType                   =>
+        ct.mapSectionReference(1, f)
+      case alias: Alias                        =>
+        alias.mapSectionReference(1, f)
+      case canon: Canon                        =>
+        canon.mapSectionReference(f)
+      case ci: ComponentImport                 =>
+        ci.mapSectionReference(f)
+      case ce: ComponentExport                 =>
+        ce.mapSectionReference(f)
+      case cinst: ComponentInstance            =>
+        cinst.mapSectionReference(f)
+      case c: Component                        =>
+        // TODO: we need to recursively do this for all inner components!
+        c.mapAllAlias {
+          case alias @ Alias.Outer(kind, target) =>
+            if (target.ct == 1) alias.mapSectionReference(1, f)
+            else alias
+          case alias: Alias                      => alias
+        }.mapAllComponentTypes { ct =>
+          ct.mapAliases {
+            case (level, alias @ Alias.Outer(kind, target)) =>
+              if (target.ct == level) alias.mapSectionReference(level, f)
+              else alias
+            case (_, alias)                                 =>
+              alias
+          }
+        }
+      case other: Section[ComponentIndexSpace] =>
+        other
+    }
 
   def moveToEnd(idx: ComponentIdx): Component =
     getComponent(idx) match {
@@ -137,6 +214,18 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
 
   def replaceComponentType(idx: ComponentTypeIdx, alias: Alias): Component =
     this.copy(sections = sections.replace(ComponentIndexSpace.Type)(idx, alias))
+
+  lazy val sectionToSectionReference: Map[Section[ComponentIndexSpace], SectionReference] =
+    (coreInstanceIndex.map { case (k, v) => (v, SectionReference.CoreInstance(k)) } ++
+      instanceIndex.map { case (k, v) => (v, SectionReference.Instance(k)) } ++
+      componentTypeIndex.map { case (k, v) => (v, SectionReference.ComponentType(k)) } ++
+      funcIndex.map { case (k, v) => (v, SectionReference.ComponentFunc(k)) } ++
+      componentIndex.map { case (k, v) => (v, SectionReference.Component(k)) } ++
+      valueIndex.map { case (k, v) => (v, SectionReference.Value(k)) } ++
+      moduleIndex.map { case (k, v) => (v, SectionReference.Module(k)) })
+
+  def sectionReference(section: Section[ComponentIndexSpace]): SectionReference =
+    sectionToSectionReference(section)
 }
 
 object Component {
@@ -164,12 +253,24 @@ enum ComponentInstance extends Section[ComponentIndexSpace] {
   case FromExports(exports: Chunk[ComponentExport])
 
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentInstanceSection
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentInstance =
+    this match {
+      case Instantiate(componentIdx, args) =>
+        Instantiate(f.map(componentIdx.toSectionReference).idx, args.map(_.mapSectionReference(f)))
+      case FromExports(exports)            =>
+        FromExports(exports.map(_.mapSectionReference(f)))
+    }
 }
 
 final case class ComponentInstantiationArg(
     name: Name,
     desc: ExternDesc
-)
+) {
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentInstantiationArg =
+    this.copy(desc = desc.mapSectionReference(f))
+}
 
 enum ComponentExternalKind {
   case Module
@@ -200,6 +301,39 @@ enum Alias extends Section[ComponentIndexSpace] {
   case Outer(kind: OuterAliasKind, target: AliasTarget)
 
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentAliasSection
+
+  def mapSectionReference(level: Int, f: SectionReference.Mapper): Alias =
+    this match {
+      case InstanceExport(kind, instanceIdx, name)     =>
+        InstanceExport(kind, f.map(instanceIdx.toSectionReference).idx, name)
+      case CoreInstanceExport(kind, instanceIdx, name) =>
+        CoreInstanceExport(kind, f.map(instanceIdx.toSectionReference).idx, name)
+      case Outer(kind, target)                         =>
+        if (level == target.ct)
+          kind match {
+            case OuterAliasKind.Type      =>
+              Outer(
+                kind,
+                target.copy(idx =
+                  f.map[SectionReference.ComponentType](ComponentTypeIdx.fromInt(target.idx).toSectionReference)
+                    .idx
+                    .toInt
+                )
+              )
+            case OuterAliasKind.Component =>
+              Outer(
+                kind,
+                target.copy(idx =
+                  f.map[SectionReference.Component](ComponentIdx.fromInt(target.idx).toSectionReference).idx.toInt
+                )
+              )
+            case _                        =>
+              // TODO
+              this
+          }
+        else
+          this
+    }
 }
 
 final case class AliasTarget(ct: Int, idx: Int)
@@ -212,6 +346,20 @@ enum Canon extends Section[ComponentIndexSpace] {
   case ResourceRep(typeIdx: ComponentTypeIdx)
 
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentCanonSection
+
+  def mapSectionReference(f: SectionReference.Mapper): Canon =
+    this match {
+      case Lift(funcIdx, opts, functionType) =>
+        Lift(funcIdx, opts, f.map(functionType.toSectionReference).idx)
+      case Lower(funcIdx, opts)              =>
+        Lower(f.map(funcIdx.toSectionReference).idx, opts)
+      case ResourceNew(typeIdx)              =>
+        ResourceNew(f.map(typeIdx.toSectionReference).idx)
+      case ResourceDrop(typ)                 =>
+        ResourceDrop(typ.mapSectionReference(f))
+      case ResourceRep(typeIdx)              =>
+        ResourceRep(f.map(typeIdx.toSectionReference).idx)
+    }
 }
 
 enum CanonicalOption {
@@ -230,6 +378,9 @@ final case class ComponentStart(funcIdx: ComponentFuncIdx, args: Chunk[ValueIdx]
 
 final case class ComponentImport(name: ExternName, desc: ExternDesc) extends Section[ComponentIndexSpace] {
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentImportSection
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentImport =
+    this.copy(desc = desc.mapSectionReference(f))
 }
 
 final case class ExternName(name: Name, url: Url)
@@ -241,6 +392,46 @@ final case class ComponentExport(
     desc: Option[ExternDesc]
 ) extends Section[ComponentIndexSpace] { // TODO: index type
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentExportSection
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentExport =
+    kind match {
+      case ComponentExternalKind.Module    =>
+        this.copy(
+          idx = f.map[SectionReference.Module](SectionReference.Module(ModuleIdx.fromInt(idx))).idx.toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+      case ComponentExternalKind.Func      =>
+        this.copy(
+          idx = f
+            .map[SectionReference.ComponentFunc](SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(idx)))
+            .idx
+            .toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+      case ComponentExternalKind.Value     =>
+        this.copy(
+          idx = f.map[SectionReference.Value](SectionReference.Value(ValueIdx.fromInt(idx))).idx.toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+      case ComponentExternalKind.Type      =>
+        this.copy(
+          idx = f
+            .map[SectionReference.ComponentType](SectionReference.ComponentType(ComponentTypeIdx.fromInt(idx)))
+            .idx
+            .toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+      case ComponentExternalKind.Instance  =>
+        this.copy(
+          idx = f.map[SectionReference.Instance](SectionReference.Instance(InstanceIdx.fromInt(idx))).idx.toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+      case ComponentExternalKind.Component =>
+        this.copy(
+          idx = f.map[SectionReference.Component](SectionReference.Component(ComponentIdx.fromInt(idx))).idx.toInt,
+          desc = desc.map(_.mapSectionReference(f))
+        )
+    }
 }
 
 enum ExternDesc {
@@ -250,11 +441,27 @@ enum ExternDesc {
   case Type(typeBounds: TypeBound)
   case Instance(typeIdx: ComponentTypeIdx)
   case Component(typeIdx: ComponentTypeIdx)
+
+  def mapSectionReference(f: SectionReference.Mapper): ExternDesc =
+    this match {
+      case ExternDesc.Module(idx)      => ExternDesc.Module(f.map(idx.toSectionReference).idx)
+      case ExternDesc.Func(idx)        => ExternDesc.Func(f.map(idx.toSectionReference).idx)
+      case ExternDesc.Val(valType)     => ExternDesc.Val(valType.mapSectionReference(f))
+      case ExternDesc.Type(typeBounds) => ExternDesc.Type(typeBounds.mapSectionReference(f))
+      case ExternDesc.Instance(idx)    => ExternDesc.Instance(f.map(idx.toSectionReference).idx)
+      case ExternDesc.Component(idx)   => ExternDesc.Component(f.map(idx.toSectionReference).idx)
+    }
 }
 
 enum TypeBound {
   case Eq(typeIdx: ComponentTypeIdx)
   case SubResource
+
+  def mapSectionReference(f: SectionReference.Mapper): TypeBound =
+    this match {
+      case TypeBound.Eq(idx)     => TypeBound.Eq(f.map(idx.toSectionReference).idx)
+      case TypeBound.SubResource => this
+    }
 }
 
 enum CoreType extends Section[ComponentIndexSpace] {
@@ -273,7 +480,13 @@ enum ModuleDeclaration {
 
 enum ComponentValType {
   case Primitive(typ: PrimitiveValueType)
-  case Defined(typIdx: TypeIdx)
+  case Defined(typIdx: ComponentTypeIdx)
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentValType =
+    this match {
+      case ComponentValType.Primitive(_) => this
+      case ComponentValType.Defined(idx) => ComponentValType.Defined(f.map(idx.toSectionReference).idx)
+    }
 }
 
 enum ComponentType extends Section[ComponentIndexSpace] {
@@ -281,7 +494,7 @@ enum ComponentType extends Section[ComponentIndexSpace] {
   case Func(componentFuncType: ComponentFuncType)
   case Component(componentTypes: Chunk[ComponentTypeDeclaration])
   case Instance(instanceTypes: Chunk[InstanceTypeDeclaration])
-  case Resource(representation: ValType, destructor: Option[FuncIdx])
+  case Resource(representation: ValType, destructor: Option[ComponentFuncIdx])
 
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentTypeSection
 
@@ -306,13 +519,48 @@ enum ComponentType extends Section[ComponentIndexSpace] {
         ComponentType.Instance(types.map(_.mapAliases(f, atLevel)))
       case _                              => this
     }
+
+  def mapSectionReference(level: Int, f: SectionReference.Mapper): ComponentType =
+    this match {
+      case ComponentType.Defined(typ)                             => ComponentType.Defined(typ.mapSectionReference(f))
+      case ComponentType.Func(typ)                                => ComponentType.Func(typ.mapSectionReference(f))
+      case ComponentType.Resource(repr, destructor)               => ComponentType.Resource(repr, destructor)
+      case ComponentType.Component(_) | ComponentType.Instance(_) =>
+        // We cannot map the references within a component or instance declaration because they introduce
+        // a new scope. We still need to replace outer aliases pointing to the current scope.
+        mapAliases(
+          {
+            case (level, alias @ Alias.Outer(kind, target)) =>
+              if (target.ct == level) alias.mapSectionReference(level, f)
+              else alias
+            case (_, alias)                                 =>
+              alias
+          },
+          level
+        )
+    }
 }
 
-final case class ComponentFuncType(params: Chunk[(Name, ComponentValType)], result: ComponentFuncResult)
+final case class ComponentFuncType(params: Chunk[(Name, ComponentValType)], result: ComponentFuncResult) {
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentFuncType =
+    ComponentFuncType(
+      params.map { case (name, typ) => (name, typ.mapSectionReference(f)) },
+      result.mapSectionReference(f)
+    )
+}
 
 enum ComponentFuncResult {
   case Unnamed(typ: ComponentValType)
   case Named(types: Chunk[(Name, ComponentValType)])
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentFuncResult =
+    this match {
+      case ComponentFuncResult.Unnamed(typ) =>
+        ComponentFuncResult.Unnamed(typ.mapSectionReference(f))
+      case ComponentFuncResult.Named(types) =>
+        ComponentFuncResult.Named(types.map { case (name, typ) => (name, typ.mapSectionReference(f)) })
+    }
 }
 
 enum InstanceTypeDeclaration {
@@ -336,6 +584,18 @@ enum InstanceTypeDeclaration {
       case InstanceTypeDeclaration.Alias(alias) => InstanceTypeDeclaration.Alias(f(atLevel, alias))
       case InstanceTypeDeclaration.Type(typ)    => InstanceTypeDeclaration.Type(typ.mapAliases(f, atLevel + 1))
       case _                                    => this
+    }
+
+  def mapSectionReference(level: Int, f: SectionReference.Mapper): InstanceTypeDeclaration =
+    this match {
+      case InstanceTypeDeclaration.Core(typ)          =>
+        this
+      case InstanceTypeDeclaration.Type(typ)          =>
+        InstanceTypeDeclaration.Type(typ.mapSectionReference(level + 1, f))
+      case InstanceTypeDeclaration.Alias(alias)       =>
+        InstanceTypeDeclaration.Alias(alias.mapSectionReference(level, f))
+      case InstanceTypeDeclaration.Export(name, desc) =>
+        InstanceTypeDeclaration.Export(name, desc.mapSectionReference(f))
     }
 }
 
@@ -362,6 +622,20 @@ enum ComponentTypeDeclaration {
       case ComponentTypeDeclaration.Type(typ)    => ComponentTypeDeclaration.Type(typ.mapAliases(f, atLevel + 1))
       case _                                     => this
     }
+
+  def mapSectionReference(level: Int, f: SectionReference.Mapper): ComponentTypeDeclaration =
+    this match {
+      case ComponentTypeDeclaration.Core(typ)          =>
+        this
+      case ComponentTypeDeclaration.Type(typ)          =>
+        ComponentTypeDeclaration.Type(typ.mapSectionReference(level + 1, f))
+      case ComponentTypeDeclaration.Alias(alias)       =>
+        ComponentTypeDeclaration.Alias(alias.mapSectionReference(level, f))
+      case ComponentTypeDeclaration.Import(imp)        =>
+        ComponentTypeDeclaration.Import(imp.mapSectionReference(f))
+      case ComponentTypeDeclaration.Export(name, desc) =>
+        ComponentTypeDeclaration.Export(name, desc.mapSectionReference(f))
+    }
 }
 
 enum ComponentDefinedType {
@@ -377,13 +651,36 @@ enum ComponentDefinedType {
   case Result(ok: scala.Option[ComponentValType], err: scala.Option[ComponentValType])
   case Own(typeIdx: ComponentTypeIdx)
   case Borrow(typeIdx: ComponentTypeIdx)
+
+  def mapSectionReference(f: SectionReference.Mapper): ComponentDefinedType =
+    this match {
+      case ComponentDefinedType.Primitive(typ)  => this
+      case ComponentDefinedType.Record(fields)  =>
+        ComponentDefinedType.Record(fields.map { case (name, typ) => (name, typ.mapSectionReference(f)) })
+      case ComponentDefinedType.Variant(cases)  =>
+        ComponentDefinedType.Variant(cases.map(c => c.copy(typ = c.typ.map(_.mapSectionReference(f)))))
+      case ComponentDefinedType.List(elem)      => ComponentDefinedType.List(elem.mapSectionReference(f))
+      case ComponentDefinedType.Tuple(elems)    => ComponentDefinedType.Tuple(elems.map(_.mapSectionReference(f)))
+      case ComponentDefinedType.Flags(names)    => this
+      case ComponentDefinedType.Enum(cases)     => this
+      case ComponentDefinedType.Union(types)    => ComponentDefinedType.Union(types.map(_.mapSectionReference(f)))
+      case ComponentDefinedType.Option(typ)     => ComponentDefinedType.Option(typ.mapSectionReference(f))
+      case ComponentDefinedType.Result(ok, err) =>
+        ComponentDefinedType.Result(ok.map(_.mapSectionReference(f)), err.map(_.mapSectionReference(f)))
+      case ComponentDefinedType.Own(typeIdx)    => this
+      case ComponentDefinedType.Borrow(typeIdx) => this
+    }
 }
 
 final case class VariantCase(
     name: Name,
     typ: Option[ComponentValType],
-    refines: Option[Int]
-) // TODO: LabelIdx? or a new?
+    refines: Option[Int] // TODO: LabelIdx? or a new?
+) {
+
+  def mapSectionReference(f: SectionReference.Mapper): VariantCase =
+    this.copy(typ = typ.map(_.mapSectionReference(f)))
+}
 
 enum PrimitiveValueType {
   case Bool
@@ -421,8 +718,9 @@ object ComponentTypeIdx {
   def fromInt(value: Int): ComponentTypeIdx = value
 
   extension (idx: ComponentTypeIdx) {
-    def next: ComponentTypeIdx = idx + 1
-    def toInt: Int             = idx
+    def next: ComponentTypeIdx                             = idx + 1
+    def toInt: Int                                         = idx
+    def toSectionReference: SectionReference.ComponentType = SectionReference.ComponentType(idx)
   }
 }
 
@@ -432,8 +730,9 @@ object ComponentFuncIdx {
   def fromInt(value: Int): ComponentFuncIdx = value
 
   extension (idx: ComponentFuncIdx) {
-    def next: ComponentFuncIdx = idx + 1
-    def toInt: Int             = idx
+    def next: ComponentFuncIdx                             = idx + 1
+    def toInt: Int                                         = idx
+    def toSectionReference: SectionReference.ComponentFunc = SectionReference.ComponentFunc(idx)
   }
 }
 
@@ -443,8 +742,9 @@ object ModuleIdx {
   def fromInt(value: Int): ModuleIdx = value
 
   extension (idx: ModuleIdx) {
-    def next: ModuleIdx = idx + 1
-    def toInt: Int      = idx
+    def next: ModuleIdx                             = idx + 1
+    def toInt: Int                                  = idx
+    def toSectionReference: SectionReference.Module = SectionReference.Module(idx)
   }
 }
 
@@ -454,8 +754,9 @@ object ComponentIdx {
   def fromInt(value: Int): ComponentIdx = value
 
   extension (idx: ComponentIdx) {
-    def next: ComponentIdx = idx + 1
-    def toInt: Int         = idx
+    def next: ComponentIdx                             = idx + 1
+    def toInt: Int                                     = idx
+    def toSectionReference: SectionReference.Component = SectionReference.Component(idx)
   }
 }
 
@@ -465,8 +766,9 @@ object CoreInstanceIdx {
   def fromInt(value: Int): CoreInstanceIdx = value
 
   extension (idx: CoreInstanceIdx) {
-    def next: CoreInstanceIdx = idx + 1
-    def toInt: Int            = idx
+    def next: CoreInstanceIdx                             = idx + 1
+    def toInt: Int                                        = idx
+    def toSectionReference: SectionReference.CoreInstance = SectionReference.CoreInstance(idx)
   }
 }
 
@@ -476,8 +778,9 @@ object InstanceIdx {
   def fromInt(value: Int): InstanceIdx = value
 
   extension (idx: InstanceIdx) {
-    def next: InstanceIdx = idx + 1
-    def toInt: Int        = idx
+    def next: InstanceIdx                             = idx + 1
+    def toInt: Int                                    = idx
+    def toSectionReference: SectionReference.Instance = SectionReference.Instance(idx)
   }
 }
 
@@ -487,8 +790,9 @@ object ValueIdx {
   def fromInt(value: Int): ValueIdx = value
 
   extension (idx: ValueIdx) {
-    def next: ValueIdx = idx + 1
-    def toInt: Int     = idx
+    def next: ValueIdx                             = idx + 1
+    def toInt: Int                                 = idx
+    def toSectionReference: SectionReference.Value = SectionReference.Value(idx)
   }
 }
 
@@ -501,4 +805,9 @@ object StartIdx {
     def next: StartIdx = idx + 1
     def toInt: Int     = idx
   }
+}
+
+enum InsertionPoint {
+  case LastOfGroup
+  case End
 }

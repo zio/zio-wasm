@@ -1,5 +1,6 @@
 package zio.wasm
 
+import zio.wasm.componentmodel.SectionReference
 import zio.{Chunk, ChunkBuilder}
 
 import scala.annotation.tailrec
@@ -40,6 +41,9 @@ final case class Sections[IS <: IndexSpace](sections: Chunk[Section[IS]]) {
 
   def filterBySectionType(sectionType: SectionType[IS]): Chunk[sectionType.Section] =
     sections.filter(_.sectionType == sectionType).map(_.asInstanceOf[sectionType.Section])
+
+  def map(f: Section[IS] => Section[IS]): Sections[IS] =
+    Sections(sections.map(f))
 
   def mapSectionBySectionType(
       sectionType: SectionType[IS]

@@ -22,7 +22,18 @@ final case class Graph[A](edges: Chunk[Edge[A]]) {
           val insert                      = matchingEdges.map(_.to).filterNot(n => otherEdges.map(_.to).contains(n))
           kahn(otherEdges, ordered :+ node, tail ++ insert)
       }
-    kahn(edges, Chunk.empty, Chunk.fromIterable(vertices.filterNot(n => edges.map(_.to).contains(n))))
+
+    val withoutSelfEdges =
+      edges.filterNot(e => e.from == e.to)
+    kahn(
+      withoutSelfEdges,
+      Chunk.empty,
+      Chunk.fromIterable(vertices.filterNot(n => withoutSelfEdges.map(_.to).contains(n)))
+    ).map { sorted =>
+      val sortedNodes  = sorted.toSet
+      val disconnected = withoutSelfEdges.map(_.from).filter(n => !sorted.contains(n))
+      disconnected ++ sorted
+    }
   }
 }
 

@@ -6,8 +6,6 @@ import zio.wasm.syntax.Binary.{SectionId, labelIdx}
 import scala.reflect.ClassTag
 
 object ComponentSectionType {
-  //    exports: Chunk[ComponentExport],
-  //    custom: Chunk[Custom]
 
   object ComponentModuleSection extends SectionType[ComponentIndexSpace] {
     override type Section = Module

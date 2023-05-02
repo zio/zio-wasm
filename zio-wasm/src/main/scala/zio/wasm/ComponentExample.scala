@@ -150,24 +150,41 @@ object ComponentExample extends ZIOAppDefault {
                                         other
                                     }
                                   }
-                 // And also we have to update refernces to the moved imports and types
-                 mapper         = SectionReference.Mapper.fromPairs(
-                                    oldImportIds.zip(importIds) ++
-                                      Chunk.fromIterable(additionalIds).map { case (oldTypeIdx, newTypeIdx) =>
-                                        SectionReference.ComponentType(oldTypeIdx) -> SectionReference.ComponentType(newTypeIdx)
+
+                 // Instantiating the inner module with the copied imports
+                 _             <- addComponentInstance(
+                                    ComponentInstance.Instantiate(
+                                      componentIdx,
+                                      importIds.zip(component.imports).map { case (importId, originalImport) =>
+                                        ComponentInstantiationArg(
+                                          originalImport.name.name,
+                                          originalImport.desc
+                                        )
                                       }
+                                    )
                                   )
-                 _             <- mapAllSectionReference(mapper)
+
+                 // Copying all component exports of the inner component
+                 exportedIds   <- ZPure.foreach(component.exports) { componentExport =>
+                                    // TODO: need to add an alias export for the above generated instance and export that
+                                    addComponentExport(componentExport)
+                                  }
+                 _             <- log(s"Added ${exportedIds.size} exports: ${exportedIds}")
+
+                 // And also we have to update refernces to the moved imports and types
+                 mapper = SectionReference.Mapper.fromPairs(
+                            oldImportIds.zip(importIds) ++
+                              Chunk.fromIterable(additionalIds).map { case (oldTypeIdx, newTypeIdx) =>
+                                SectionReference.ComponentType(oldTypeIdx) -> SectionReference.ComponentType(newTypeIdx)
+                              }
+                          )
+                 _     <- mapAllSectionReference(mapper)
                } yield ()
              }
-        // Copying all component exports of the inner component
-//        exportIds <- ZPure.foreach(component.exports) { componentExport =>
-//                       addComponentExport(componentExport)
-//                     }
-//        _         <- log(s"Added ${exportIds.size} exports: ${exportIds}")
+        // TODO: it does not good enough, has to be part of the dependency tree instead
+        _ <- moveToEnd(componentIdx)
 
         // Moving the final inner component to the end, because it needs to be able to refer to outer types
-        _ <- moveToEnd(componentIdx)
       } yield ()
     }
 

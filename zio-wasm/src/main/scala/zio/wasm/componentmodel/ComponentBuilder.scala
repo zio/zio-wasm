@@ -72,8 +72,28 @@ object ComponentBuilder {
           .as(idx)
     }
 
-  def addComponentExport(componentExport: ComponentExport): ComponentBuilder[ExportIdx] =
-    ZPure.modify(_.modifyComponent(_.addComponentExport(componentExport)))
+  def addComponentExport(
+      componentExport: ComponentExport,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): ComponentBuilder[SectionReference] =
+    ZPure.get[State].flatMap {
+      case State.Normal(_)                                                  =>
+        ZPure.modify(_.modifyComponent(_.addComponentExport(componentExport, insertionPoint)))
+      case State.Capturing(component, firstFakeId, nextFakeId, newSections) =>
+        val idx = componentExport.kind match {
+          case ComponentExternalKind.Module    => SectionReference.Module(ModuleIdx.fromInt(nextFakeId))
+          case ComponentExternalKind.Func      => SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(nextFakeId))
+          case ComponentExternalKind.Value     => SectionReference.Value(ValueIdx.fromInt(nextFakeId))
+          case ComponentExternalKind.Type      => SectionReference.ComponentType(ComponentTypeIdx.fromInt(nextFakeId))
+          case ComponentExternalKind.Instance  => SectionReference.Instance(InstanceIdx.fromInt(nextFakeId))
+          case ComponentExternalKind.Component => SectionReference.Component(ComponentIdx.fromInt(nextFakeId))
+        }
+        ZPure
+          .set(
+            State.Capturing(component, firstFakeId, nextFakeId + 1, newSections :+ (idx -> componentExport))
+          )
+          .as(idx)
+    }
 
   def addComponentType(
       componentType: ComponentType,
@@ -92,6 +112,25 @@ object ComponentBuilder {
               firstFakeId,
               nextFakeId + 1,
               newSections :+ (SectionReference.ComponentType(idx) -> componentType)
+            )
+          )
+          .as(idx)
+    }
+
+  def addComponentInstance(instance: ComponentInstance, insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup) =
+    ZPure.get[State].flatMap {
+      case State.Normal(_) =>
+        ZPure.modify(_.modifyComponent(_.addComponentInstance(instance, insertionPoint)))
+
+      case State.Capturing(component, firstFakeId, nextFakeId, newSections) =>
+        val idx = InstanceIdx.fromInt(nextFakeId)
+        ZPure
+          .set(
+            State.Capturing(
+              component,
+              firstFakeId,
+              nextFakeId + 1,
+              newSections :+ (SectionReference.Instance(idx) -> instance)
             )
           )
           .as(idx)
@@ -125,12 +164,16 @@ object ComponentBuilder {
               ZPure.foreachDiscard(order) { fakeId =>
                 val componentType = indexedNewComponentTypes(fakeId)
                 (componentType match {
-                  case componentType: ComponentType     =>
+                  case componentType: ComponentType         =>
                     addComponentType(componentType, InsertionPoint.End)
-                  case componentImport: ComponentImport =>
+                  case componentImport: ComponentImport     =>
                     addComponentImport(componentImport, InsertionPoint.End)
-                  case alias: Alias                     =>
+                  case alias: Alias                         =>
                     addAlias(alias, InsertionPoint.End)
+                  case componentExport: ComponentExport     =>
+                    addComponentExport(componentExport, InsertionPoint.End)
+                  case componentInstance: ComponentInstance =>
+                    addComponentInstance(componentInstance, InsertionPoint.End)
                 }).map { r =>
                   println(s"Added item ${componentType.getClass.getSimpleName} $fakeId with final id $r")
                   r

@@ -35,13 +35,11 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   lazy val funcIndex          = sections.indexed(ComponentIndexSpace.Func)
   lazy val componentIndex     = sections.indexed(ComponentIndexSpace.Component)
   lazy val valueIndex         = sections.indexed(ComponentIndexSpace.Value)
-  lazy val exportIndex        = sections.indexed(ComponentIndexSpace.Export)
   lazy val moduleIndex        = sections.indexed(ComponentIndexSpace.Module)
 
   lazy val lastComponentIdx: ComponentIdx         = ComponentIdx.fromInt(componentIndex.size - 1)
   lazy val lastComponentFuncIdx: ComponentFuncIdx = ComponentFuncIdx.fromInt(funcIndex.size - 1)
   lazy val lastComponentTypeIdx: ComponentTypeIdx = ComponentTypeIdx.fromInt(componentTypeIndex.size - 1)
-  lazy val lastExportIdx: ExportIdx               = ExportIdx.fromInt(exportIndex.size - 1)
   lazy val lastInstanceIdx: InstanceIdx           = InstanceIdx.fromInt(instanceIndex.size - 1)
   lazy val lastModuleIdx: ModuleIdx               = ModuleIdx.fromInt(instanceIndex.size - 1)
   lazy val lastValueIdx: ValueIdx                 = ValueIdx.fromInt(valueIndex.size - 1)
@@ -82,10 +80,35 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
     (idx, updatedComponent)
   }
 
-  def addComponentExport(componentExport: ComponentExport): (ExportIdx, Component) =
+  def addComponentInstance(
+      componentInstance: ComponentInstance,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): (SectionReference, Component) =
     (
-      lastExportIdx.next,
-      this.copy(sections = sections.addToLastGroup(componentExport)),
+      SectionReference.Instance(lastInstanceIdx.next),
+      insertionPoint match {
+        case InsertionPoint.LastOfGroup => this.copy(sections = sections.addToLastGroup(componentInstance))
+        case InsertionPoint.End         => this.copy(sections = sections.addToEnd(componentInstance))
+      }
+    )
+
+  def addComponentExport(
+      componentExport: ComponentExport,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): (SectionReference, Component) =
+    (
+      componentExport.kind match {
+        case ComponentExternalKind.Module    => SectionReference.Module(lastModuleIdx.next)
+        case ComponentExternalKind.Func      => SectionReference.ComponentFunc(lastComponentFuncIdx.next)
+        case ComponentExternalKind.Value     => SectionReference.Value(lastValueIdx.next)
+        case ComponentExternalKind.Type      => SectionReference.ComponentType(lastComponentTypeIdx.next)
+        case ComponentExternalKind.Instance  => SectionReference.Instance(lastInstanceIdx.next)
+        case ComponentExternalKind.Component => SectionReference.Component(lastComponentIdx.next)
+      },
+      insertionPoint match {
+        case InsertionPoint.LastOfGroup => this.copy(sections = sections.addToLastGroup(componentExport))
+        case InsertionPoint.End         => this.copy(sections = sections.addToEnd(componentExport))
+      }
     )
 
   def addComponentType(

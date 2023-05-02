@@ -163,6 +163,44 @@ object Dependencies {
   ): Chunk[Graph.Edge[SectionReference]] =
     dependenciesOfExternDesc(idx, ci.desc)
 
+  private def dependenciesOfComponentExport(
+      idx: SectionReference,
+      ce: ComponentExport
+  ): Chunk[Graph.Edge[SectionReference]] =
+    ce.desc.map(dependenciesOfExternDesc(idx, _)).getOrElse(Chunk.empty) :+
+      (ce.kind match {
+        case ComponentExternalKind.Module    =>
+          Graph.Edge(SectionReference.Module(ModuleIdx.fromInt(ce.idx)), idx)
+        case ComponentExternalKind.Func      =>
+          Graph.Edge(SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(ce.idx)), idx)
+        case ComponentExternalKind.Value     =>
+          Graph.Edge(SectionReference.Value(ValueIdx.fromInt(ce.idx)), idx)
+        case ComponentExternalKind.Type      =>
+          Graph.Edge(SectionReference.ComponentType(ComponentTypeIdx.fromInt(ce.idx)), idx)
+        case ComponentExternalKind.Instance  =>
+          Graph.Edge(SectionReference.Instance(InstanceIdx.fromInt(ce.idx)), idx)
+        case ComponentExternalKind.Component =>
+          Graph.Edge(SectionReference.Component(ComponentIdx.fromInt(ce.idx)), idx)
+      })
+
+  private def dependenciesOfComponentInstance(
+      idx: SectionReference,
+      ci: ComponentInstance
+  ): Chunk[Graph.Edge[SectionReference]] =
+    ci match {
+      case ComponentInstance.Instantiate(componentIdx, args) =>
+        Chunk.single(
+          Graph.Edge(SectionReference.Component(componentIdx), idx)
+        ) ++
+          args.flatMap { case ComponentInstantiationArg(name, desc) =>
+            dependenciesOfExternDesc(idx, desc)
+          }
+
+      case ComponentInstance.FromExports(exports) =>
+        // TODO
+        Chunk.empty
+    }
+
   private def aliasToReference(aliasKind: OuterAliasKind, i: Int): SectionReference =
     aliasKind match {
       case OuterAliasKind.CoreModule =>
@@ -181,12 +219,16 @@ object Dependencies {
     Chunk
       .fromIterable(sections)
       .collect {
-        case (idx, ct: ComponentType)   =>
+        case (idx, ct: ComponentType)     =>
           dependenciesOfComponentType(1, idx, ct)
-        case (idx, ct: ComponentImport) =>
-          dependenciesOfComponentImport(idx, ct)
-        case (idx, alias: Alias)        =>
+        case (idx, ci: ComponentImport)   =>
+          dependenciesOfComponentImport(idx, ci)
+        case (idx, alias: Alias)          =>
           dependenciesOfAlias(1, idx, alias)
+        case (idx, ce: ComponentExport)   =>
+          dependenciesOfComponentExport(idx, ce)
+        case (idx, ci: ComponentInstance) =>
+          dependenciesOfComponentInstance(idx, ci)
       }
       .flatten
 }

@@ -134,13 +134,6 @@ object ComponentIndexSpace {
       idx.toInt
   }
 
-  object Export extends ComponentIndexSpace {
-    type Idx = ExportIdx
-
-    override def fromInt(idx: Int): ExportIdx = ExportIdx.fromInt(idx)
-    override def toInt(idx: ExportIdx): Int   = idx.toInt
-  }
-
   object Custom extends ComponentIndexSpace {
     type Idx = CustomIdx
 

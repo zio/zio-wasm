@@ -122,7 +122,7 @@ object AstGen {
   val componentValType: Gen[Any, ComponentValType] =
     Gen.oneOf(
       primitiveValType.map(ComponentValType.Primitive.apply),
-      WasmAstGen.typeIdx.map(ComponentValType.Defined.apply)
+      componentTypeIdx.map(ComponentValType.Defined.apply)
     )
 
   val typeBounds: Gen[Any, TypeBound] =
@@ -161,8 +161,9 @@ object AstGen {
   val componentInstantiationArg: Gen[Any, ComponentInstantiationArg] =
     for {
       n    <- WasmAstGen.name
-      desc <- externDesc
-    } yield ComponentInstantiationArg(n, desc)
+      kind <- componentExternalKind
+      i    <- Gen.int
+    } yield ComponentInstantiationArg(n, kind, i)
 
   val componentInstance: Gen[Any, ComponentInstance] =
     Gen.oneOf(
@@ -234,7 +235,7 @@ object AstGen {
       componentFuncType.map(ComponentType.Func.apply),
       Gen.chunkOf(componentTypeDeclaration).map(ComponentType.Component.apply),
       Gen.chunkOf(instanceTypeDeclaration).map(ComponentType.Instance.apply),
-      (WasmAstGen.valType <*> Gen.option(WasmAstGen.funcIdx)).map(ComponentType.Resource.apply)
+      (WasmAstGen.valType <*> Gen.option(componentFuncIdx)).map(ComponentType.Resource.apply)
     )
 
   val canonicalOption: Gen[Any, CanonicalOption] =

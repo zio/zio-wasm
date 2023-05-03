@@ -46,8 +46,26 @@ object ComponentBuilder {
         }
     }
 
-  def addComponent(component: Component): ComponentBuilder[ComponentIdx] =
-    ZPure.modify(_.modifyComponent(_.addComponent(component)))
+  def addComponent(
+      newComponent: Component,
+      insertionPoint: InsertionPoint = InsertionPoint.End
+  ): ComponentBuilder[ComponentIdx] =
+    ZPure.get[State].flatMap {
+      case State.Normal(_)                                                  =>
+        ZPure.modify(_.modifyComponent(_.addComponent(newComponent, insertionPoint)))
+      case State.Capturing(component, firstFakeId, nextFakeId, newSections) =>
+        val idx = ComponentIdx.fromInt(nextFakeId)
+        ZPure
+          .set(
+            State.Capturing(
+              component,
+              firstFakeId,
+              nextFakeId + 1,
+              newSections :+ (SectionReference.Component(idx) -> newComponent)
+            )
+          )
+          .as(idx)
+    }
 
   def addComponentImport(
       componentImport: ComponentImport,
@@ -117,7 +135,10 @@ object ComponentBuilder {
           .as(idx)
     }
 
-  def addComponentInstance(instance: ComponentInstance, insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup) =
+  def addComponentInstance(
+      instance: ComponentInstance,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+  ): ComponentBuilder[InstanceIdx] =
     ZPure.get[State].flatMap {
       case State.Normal(_) =>
         ZPure.modify(_.modifyComponent(_.addComponentInstance(instance, insertionPoint)))
@@ -174,6 +195,9 @@ object ComponentBuilder {
                     addComponentExport(componentExport, InsertionPoint.End)
                   case componentInstance: ComponentInstance =>
                     addComponentInstance(componentInstance, InsertionPoint.End)
+                  case component: Component                 =>
+                    addComponent(component, InsertionPoint.End)
+                  // TODO: support all
                 }).map { r =>
                   println(s"Added item ${componentType.getClass.getSimpleName} $fakeId with final id $r")
                   r
@@ -203,25 +227,49 @@ object ComponentBuilder {
           .toMap
           .map((ct, i) => (ct, InstanceIdx.fromInt(i)))
 
+      private lazy val fakeComponentIdToRealId =
+        order
+          .collect { case SectionReference.Component(componentIdx) => componentIdx }
+          .zipWithIndexFrom(component.lastComponentIdx.next.toInt)
+          .toMap
+          .map((ct, i) => (ct, ComponentIdx.fromInt(i)))
+
       println("fakeComponentTypeIdToRealId: " + fakeComponentTypeIdToRealId)
       println("fakeInstanceIdToRealId: " + fakeInstanceIdToRealId)
+      println("fakeComponentIdToRealId: " + fakeComponentIdToRealId)
 
       override def map[S <: SectionReference: ClassTag](value: S): S =
         value match {
-          case SectionReference.ComponentType(typeIdx) =>
+          case SectionReference.ComponentType(typeIdx)  =>
             SectionReference.ComponentType(fakeComponentTypeIdToRealId.getOrElse(typeIdx, typeIdx)).asInstanceOf[S]
-          case SectionReference.Instance(instanceIdx)  =>
+          case SectionReference.Instance(instanceIdx)   =>
             SectionReference.Instance(fakeInstanceIdToRealId.getOrElse(instanceIdx, instanceIdx)).asInstanceOf[S]
-          case other: S                                =>
+          case SectionReference.Component(componentIdx) =>
+            SectionReference.Component(fakeComponentIdToRealId.getOrElse(componentIdx, componentIdx)).asInstanceOf[S]
+          case other: S                                 =>
             other // TODO support all
         }
     }
 
   def getComponent(componentIdx: ComponentIdx): ComponentBuilder[Component] =
-    ZPure.get[State].map(_.component.getComponent(componentIdx)).flatMap {
-      case Some(component) => ZPure.succeed(component)
-      case None            => ZPure.fail(s"Component $componentIdx not found")
-    }
+    ZPure
+      .get[State]
+      .map {
+        case State.Normal(component)                       =>
+          component.getComponent(componentIdx)
+        case State.Capturing(component, _, _, newSections) =>
+          component
+            .getComponent(componentIdx)
+            .orElse(
+              newSections.collectFirst {
+                case (SectionReference.Component(cidx), newComponent: Component) if cidx == componentIdx => newComponent
+              }
+            )
+      }
+      .flatMap {
+        case Some(component) => ZPure.succeed(component)
+        case None            => ZPure.fail(s"Component $componentIdx not found")
+      }
 
   def modifyAllComponentTypes(f: ComponentType => ComponentType): ComponentBuilder[Unit] =
     ZPure.get[State].flatMap {
@@ -273,7 +321,19 @@ object ComponentBuilder {
     ZPure.update(_.mapComponent(_.moveToEnd(componentIdx)))
 
   def replaceComponent(componentIdx: ComponentIdx, newComponent: Component): ComponentBuilder[Unit] =
-    ZPure.update(_.mapComponent(_.replaceComponent(componentIdx, newComponent)))
+    ZPure.update {
+      case state @ State.Normal(component)                       =>
+        state.copy(component = component.replaceComponent(componentIdx, newComponent))
+      case state @ State.Capturing(component, _, _, newSections) =>
+        if (component.getComponent(componentIdx).isDefined)
+          state.copy(component = component.replaceComponent(componentIdx, newComponent))
+        else
+          state.copy(newSections = newSections.map {
+            case (SectionReference.Component(cidx), _) if cidx == componentIdx =>
+              (SectionReference.Component(cidx), newComponent)
+            case other                                                         => other
+          })
+    }
 
   def replaceComponentType(
       componentTypeIdx: ComponentTypeIdx,

@@ -168,20 +168,23 @@ object Dependencies {
       ce: ComponentExport
   ): Chunk[Graph.Edge[SectionReference]] =
     ce.desc.map(dependenciesOfExternDesc(idx, _)).getOrElse(Chunk.empty) :+
-      (ce.kind match {
-        case ComponentExternalKind.Module    =>
-          Graph.Edge(SectionReference.Module(ModuleIdx.fromInt(ce.idx)), idx)
-        case ComponentExternalKind.Func      =>
-          Graph.Edge(SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(ce.idx)), idx)
-        case ComponentExternalKind.Value     =>
-          Graph.Edge(SectionReference.Value(ValueIdx.fromInt(ce.idx)), idx)
-        case ComponentExternalKind.Type      =>
-          Graph.Edge(SectionReference.ComponentType(ComponentTypeIdx.fromInt(ce.idx)), idx)
-        case ComponentExternalKind.Instance  =>
-          Graph.Edge(SectionReference.Instance(InstanceIdx.fromInt(ce.idx)), idx)
-        case ComponentExternalKind.Component =>
-          Graph.Edge(SectionReference.Component(ComponentIdx.fromInt(ce.idx)), idx)
-      })
+      Graph.Edge(externalKindAndIndexToSectionReference(ce.kind, ce.idx), idx)
+
+  private def externalKindAndIndexToSectionReference(kind: ComponentExternalKind, idx: Int): SectionReference =
+    kind match {
+      case ComponentExternalKind.Module    =>
+        SectionReference.Module(ModuleIdx.fromInt(idx))
+      case ComponentExternalKind.Func      =>
+        SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(idx))
+      case ComponentExternalKind.Value     =>
+        SectionReference.Value(ValueIdx.fromInt(idx))
+      case ComponentExternalKind.Type      =>
+        SectionReference.ComponentType(ComponentTypeIdx.fromInt(idx))
+      case ComponentExternalKind.Instance  =>
+        SectionReference.Instance(InstanceIdx.fromInt(idx))
+      case ComponentExternalKind.Component =>
+        SectionReference.Component(ComponentIdx.fromInt(idx))
+    }
 
   private def dependenciesOfComponentInstance(
       idx: SectionReference,
@@ -192,13 +195,18 @@ object Dependencies {
         Chunk.single(
           Graph.Edge(SectionReference.Component(componentIdx), idx)
         ) ++
-          args.flatMap { case ComponentInstantiationArg(name, desc) =>
-            dependenciesOfExternDesc(idx, desc)
+          args.map { case ComponentInstantiationArg(name, kind, i) =>
+            Graph.Edge(externalKindAndIndexToSectionReference(kind, i), idx)
           }
 
       case ComponentInstance.FromExports(exports) =>
         // TODO
         Chunk.empty
+    }
+
+  private def dependenciesOfInnerComponent(idx: SectionReference, c: Component): Chunk[Graph.Edge[SectionReference]] =
+    c.allOuterAliasesRelativeToRoot.map { case Alias.Outer(kind, AliasTarget(1, i)) =>
+      Graph.Edge(aliasToReference(kind, i), idx)
     }
 
   private def aliasToReference(aliasKind: OuterAliasKind, i: Int): SectionReference =
@@ -229,6 +237,8 @@ object Dependencies {
           dependenciesOfComponentExport(idx, ce)
         case (idx, ci: ComponentInstance) =>
           dependenciesOfComponentInstance(idx, ci)
+        case (idx, c: Component)          =>
+          dependenciesOfInnerComponent(idx, c)
       }
       .flatten
 }

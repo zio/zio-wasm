@@ -116,76 +116,87 @@ object ComponentExample extends ZIOAppDefault {
     ComponentBuilder.runOn(Component.empty) {
       import ComponentBuilder.*
 
-      for {
-        componentIdx <- addComponent(component)
-        _            <- log(s"Added the original component as $componentIdx")
+      addManyComponentTypes {
+        for {
+          componentIdx <- addComponent(component)
+          _            <- log(s"Added the original component as $componentIdx")
 
-        _ <- addManyComponentTypes {
-               for {
-                 // Copying all component imports of the inner component
-                 results        <- ZPure.foreach(component.imports) { componentImport =>
-                                     val oldId = component.sectionReference(componentImport)
-                                     addComponentImport(componentImport).map { newId =>
-                                       (oldId, newId, externDescTypeIdx(componentImport.desc).toList.toSet)
-                                     }
-                                   }
-                 oldImportIds    = results.map(_._1)
-                 importIds       = results.map(_._2)
-                 additionalTypes = results.flatMap(_._3).toSet
-                 _              <- log(s"Added ${importIds.size} imports: ${importIds} (previously: ${oldImportIds}")
-
-                 // The types in additionalTypes also have to be copied to top level as they are referenced by the imports or
-                 // aliases in the already copied types.
-                 additionalIds <- moveAllTypesFromInnerComponent(componentIdx, additionalTypes)
-                 _             <- log(s"Moved ${additionalIds.size} additional types to the outer component: ${additionalIds}")
-                 // At this point all outer aliases pointing to the top level in the the added types must be one of those that
-                 // has been moved, so we have to update them:
-                 _             <- modifyAllComponentTypes { ct =>
-                                    ct.mapAliases {
-                                      case (level, outer: Alias.Outer) if outer.target.ct == level =>
-                                        outer.copy(target =
-                                          AliasTarget(level, additionalIds(ComponentTypeIdx.fromInt(outer.target.idx)).toInt)
-                                        )
-                                      case (_, other: Alias)                                       =>
-                                        other
-                                    }
-                                  }
-
-                 // Instantiating the inner module with the copied imports
-                 _             <- addComponentInstance(
-                                    ComponentInstance.Instantiate(
-                                      componentIdx,
-                                      importIds.zip(component.imports).map { case (importId, originalImport) =>
-                                        ComponentInstantiationArg(
-                                          originalImport.name.name,
-                                          originalImport.desc
-                                        )
-                                      }
-                                    )
-                                  )
-
-                 // Copying all component exports of the inner component
-                 exportedIds   <- ZPure.foreach(component.exports) { componentExport =>
-                                    // TODO: need to add an alias export for the above generated instance and export that
-                                    addComponentExport(componentExport)
-                                  }
-                 _             <- log(s"Added ${exportedIds.size} exports: ${exportedIds}")
-
-                 // And also we have to update refernces to the moved imports and types
-                 mapper = SectionReference.Mapper.fromPairs(
-                            oldImportIds.zip(importIds) ++
-                              Chunk.fromIterable(additionalIds).map { case (oldTypeIdx, newTypeIdx) =>
-                                SectionReference.ComponentType(oldTypeIdx) -> SectionReference.ComponentType(newTypeIdx)
+          // Copying all component imports of the inner component
+          results        <- ZPure.foreach(component.imports) { componentImport =>
+                              val oldId = component.sectionReference(componentImport)
+                              addComponentImport(componentImport).map { newId =>
+                                (oldId, newId, externDescTypeIdx(componentImport.desc).toList.toSet)
                               }
-                          )
-                 _     <- mapAllSectionReference(mapper)
-               } yield ()
-             }
-        // TODO: it does not good enough, has to be part of the dependency tree instead
-        _ <- moveToEnd(componentIdx)
+                            }
+          oldImportIds    = results.map(_._1)
+          importIds       = results.map(_._2)
+          additionalTypes = results.flatMap(_._3).toSet
+          _              <- log(s"Added ${importIds.size} imports: ${importIds} (previously: ${oldImportIds}")
 
-        // Moving the final inner component to the end, because it needs to be able to refer to outer types
-      } yield ()
+          // The types in additionalTypes also have to be copied to top level as they are referenced by the imports or
+          // aliases in the already copied types.
+          additionalIds             <- moveAllTypesFromInnerComponent(componentIdx, additionalTypes)
+          _                         <- log(s"Moved ${additionalIds.size} additional types to the outer component: ${additionalIds}")
+          // At this point all outer aliases pointing to the top level in the the added types must be one of those that
+          // has been moved, so we have to update them:
+          _                         <- modifyAllComponentTypes { ct =>
+                                         ct.mapAliases {
+                                           case (level, outer: Alias.Outer) if outer.target.ct == level =>
+                                             outer.copy(target =
+                                               AliasTarget(level, additionalIds(ComponentTypeIdx.fromInt(outer.target.idx)).toInt)
+                                             )
+                                           case (_, other: Alias)                                       =>
+                                             other
+                                         }
+                                       }
+
+          // Instantiating the inner module with the copied imports
+          innerComponentInstanceIdx <- addComponentInstance(
+                                         ComponentInstance.Instantiate(
+                                           componentIdx,
+                                           importIds.zip(component.imports).map { case (importId, originalImport) =>
+                                             ComponentInstantiationArg(
+                                               originalImport.name.name,
+                                               originalImport.desc match {
+                                                 case ExternDesc.Module(typeIdx)    => ComponentExternalKind.Module
+                                                 case ExternDesc.Func(typeIdx)      => ComponentExternalKind.Func
+                                                 case ExternDesc.Val(valType)       => ComponentExternalKind.Value
+                                                 case ExternDesc.Type(typeBounds)   => ComponentExternalKind.Type
+                                                 case ExternDesc.Instance(typeIdx)  => ComponentExternalKind.Instance
+                                                 case ExternDesc.Component(typeIdx) => ComponentExternalKind.Component
+                                               },
+                                               importId.toInt
+                                             )
+                                           }
+                                         )
+                                       )
+
+          // Copying all component exports of the inner component
+          exportedIds               <- ZPure.foreach(component.exports) { componentExport =>
+                                         val alias =
+                                           Alias.InstanceExport(
+                                             componentExport.kind,
+                                             innerComponentInstanceIdx,
+                                             componentExport.name.name
+                                           )
+                                         addAlias(alias).flatMap { aliasRef =>
+                                           addComponentExport(
+                                             componentExport.copy(idx = aliasRef.toInt)
+                                           )
+                                         }
+                                       }
+          _                         <- log(s"Added ${exportedIds.size} exports: ${exportedIds}")
+
+          // And also we have to update refernces to the moved imports and types
+          mapper = SectionReference.Mapper.fromPairs(
+                     oldImportIds.zip(importIds) ++
+                       Chunk.fromIterable(additionalIds).map { case (oldTypeIdx, newTypeIdx) =>
+                         SectionReference.ComponentType(oldTypeIdx) -> SectionReference.ComponentType(newTypeIdx)
+                       }
+                   )
+          _     <- mapAllSectionReference(mapper)
+        } yield ()
+      }
     }
 
   override def run: ZIO[ZIOAppArgs & Scope, Any, Unit] = {

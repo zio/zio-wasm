@@ -16,6 +16,19 @@ enum SectionReference {
   case Instance(idx: InstanceIdx)
   case Value(idx: ValueIdx)
   case Start(idx: StartIdx)
+
+  def toInt: Int =
+    this match {
+      case CoreType(idx)      => idx.toInt
+      case ComponentType(idx) => idx.toInt
+      case ComponentFunc(idx) => idx.toInt
+      case Module(idx)        => idx.toInt
+      case Component(idx)     => idx.toInt
+      case CoreInstance(idx)  => idx.toInt
+      case Instance(idx)      => idx.toInt
+      case Value(idx)         => idx.toInt
+      case Start(idx)         => idx.toInt
+    }
 }
 
 object SectionReference {

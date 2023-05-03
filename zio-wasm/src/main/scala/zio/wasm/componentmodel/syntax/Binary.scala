@@ -258,7 +258,7 @@ object Binary {
   private[wasm] val componentValType: BinarySyntax[ComponentValType] =
     casesByPrefix("componentValType")(
       Prefix.None -> primitiveValueType.of[ComponentValType.Primitive],
-      Prefix.None -> WasmBinary.typeIdx.of[ComponentValType.Defined]
+      Prefix.None -> componentTypeIdx.of[ComponentValType.Defined]
     )
 
   private[wasm] val typeBounds: BinarySyntax[TypeBound] =
@@ -323,7 +323,7 @@ object Binary {
     (externName ~ componentExternalKind ~ u32 ~ optional(externDesc)).of[ComponentExport] ?? "componentExport"
 
   private[wasm] val componentInstantiationArg: BinarySyntax[ComponentInstantiationArg] =
-    (name ~ externDesc).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
+    (name ~ componentExternalKind ~ u32).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
 
   private[wasm] val componentInstance: BinarySyntax[ComponentInstance] =
     casesByPrefix("componentInstance")(
@@ -381,7 +381,7 @@ object Binary {
 
   private[wasm] lazy val componentType: BinarySyntax[ComponentType] =
     casesByPrefix("componentType")(
-      Prefix(0x3f) -> (valType ~ optional(funcIdx)).of[ComponentType.Resource],
+      Prefix(0x3f) -> (valType ~ optional(componentFuncIdx)).of[ComponentType.Resource],
       Prefix(0x40) -> componentFuncType.of[ComponentType.Func],
       Prefix(0x41) -> vec(componentTypeDeclaration).of[ComponentType.Component],
       Prefix(0x42) -> vec(instanceTypeDeclaration).of[ComponentType.Instance],

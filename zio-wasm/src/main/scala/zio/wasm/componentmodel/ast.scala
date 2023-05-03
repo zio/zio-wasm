@@ -27,6 +27,8 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
     sections.filterBySectionType(ComponentSectionType.ComponentCoreTypeSection)
   lazy val canons: Chunk[Canon]                 =
     sections.filterBySectionType(ComponentSectionType.ComponentCanonSection)
+  lazy val aliases: Chunk[Alias]                =
+    sections.filterBySectionType(ComponentSectionType.ComponentAliasSection)
 
   lazy val coreInstanceIndex  = sections.indexed(ComponentIndexSpace.CoreInstance)
   lazy val instanceIndex      = sections.indexed(ComponentIndexSpace.Instance)
@@ -44,10 +46,32 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   lazy val lastModuleIdx: ModuleIdx               = ModuleIdx.fromInt(instanceIndex.size - 1)
   lazy val lastValueIdx: ValueIdx                 = ValueIdx.fromInt(valueIndex.size - 1)
 
-  def addComponent(component: Component): (ComponentIdx, Component) =
+  /** Collects all Alias.Outer aliases from top level and from type definitions which are pointing outside of the
+    * component, and makes them relative to the compoennt's root (so ct=1 is the parent component for each)
+    */
+  lazy val allOuterAliasesRelativeToRoot: Chunk[Alias.Outer] =
+    aliases
+      .collect { case outer: Alias.Outer =>
+        outer
+      }
+      .concat(
+        componentTypes
+          .flatMap(_.collectAliases().collect[Alias.Outer] { case (level, Alias.Outer(kind, AliasTarget(ct, i))) =>
+            Alias.Outer(kind, AliasTarget(ct - level, i))
+          })
+          .filter(_.target.ct >= 0)
+      )
+
+  def addComponent(
+      component: Component,
+      insertionPoint: InsertionPoint = InsertionPoint.End
+  ): (ComponentIdx, Component) =
     (
       lastComponentIdx.next,
-      this.copy(sections = sections.addToEnd(component)),
+      this.copy(sections = insertionPoint match {
+        case InsertionPoint.LastOfGroup => sections.addToLastGroup(component)
+        case InsertionPoint.End         => sections.addToEnd(component)
+      }),
     )
 
   def addComponentImport(
@@ -83,9 +107,9 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   def addComponentInstance(
       componentInstance: ComponentInstance,
       insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
-  ): (SectionReference, Component) =
+  ): (InstanceIdx, Component) =
     (
-      SectionReference.Instance(lastInstanceIdx.next),
+      lastInstanceIdx.next,
       insertionPoint match {
         case InsertionPoint.LastOfGroup => this.copy(sections = sections.addToLastGroup(componentInstance))
         case InsertionPoint.End         => this.copy(sections = sections.addToEnd(componentInstance))
@@ -288,11 +312,43 @@ enum ComponentInstance extends Section[ComponentIndexSpace] {
 
 final case class ComponentInstantiationArg(
     name: Name,
-    desc: ExternDesc
+    kind: ComponentExternalKind,
+    idx: Int
 ) {
 
   def mapSectionReference(f: SectionReference.Mapper): ComponentInstantiationArg =
-    this.copy(desc = desc.mapSectionReference(f))
+    kind match {
+      case ComponentExternalKind.Module    =>
+        this.copy(
+          idx = f.map[SectionReference.Module](SectionReference.Module(ModuleIdx.fromInt(idx))).idx.toInt
+        )
+      case ComponentExternalKind.Func      =>
+        this.copy(
+          idx = f
+            .map[SectionReference.ComponentFunc](SectionReference.ComponentFunc(ComponentFuncIdx.fromInt(idx)))
+            .idx
+            .toInt
+        )
+      case ComponentExternalKind.Value     =>
+        this.copy(
+          idx = f.map[SectionReference.Value](SectionReference.Value(ValueIdx.fromInt(idx))).idx.toInt
+        )
+      case ComponentExternalKind.Type      =>
+        this.copy(
+          idx = f
+            .map[SectionReference.ComponentType](SectionReference.ComponentType(ComponentTypeIdx.fromInt(idx)))
+            .idx
+            .toInt
+        )
+      case ComponentExternalKind.Instance  =>
+        this.copy(
+          idx = f.map[SectionReference.Instance](SectionReference.Instance(InstanceIdx.fromInt(idx))).idx.toInt
+        )
+      case ComponentExternalKind.Component =>
+        this.copy(
+          idx = f.map[SectionReference.Component](SectionReference.Component(ComponentIdx.fromInt(idx))).idx.toInt
+        )
+    }
 }
 
 enum ComponentExternalKind {

@@ -1,48 +1,155 @@
 package zio.wasm
 
 import zio.*
+import zio.wasm.componentmodel.{ComponentIndexSpace, ComponentSectionType}
 
 import java.nio.charset.StandardCharsets
+
+// TODO: getters by typed indices
 
 /** WebAssembly programs are organized into modules, which are the unit of deployment, loading, and compilation. A
   * module collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports
   * and exports and provide initialization in the form of data and element segments, or a start function.
   */
-final case class Module(
-    types: Chunk[FuncType],
-    funcs: Chunk[Func],
-    tables: Chunk[Table],
-    mems: Chunk[Mem],
-    globals: Chunk[Global],
-    elems: Chunk[Elem],
-    datas: Chunk[Data],
-    start: Option[Start],
-    imports: Chunk[Import],
-    exports: Chunk[Export],
-    custom: Chunk[Custom]
-) {
+final case class Module(sections: Sections[CoreIndexSpace]) extends Section[ComponentIndexSpace] {
+  override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentModuleSection
+
+  lazy val types: Chunk[FuncType] = sections.filterBySectionType(SectionType.CoreTypeSection)
+  lazy val funcs: Chunk[Func]     = {
+    val funcTypes = sections.filterBySectionType(SectionType.CoreFuncSection)
+    val codes     = sections.filterBySectionType(SectionType.CoreCodeSection)
+    funcTypes.zip(codes).map { case (funcType, code) =>
+      Func(funcType.typeIdx, code.locals, code.body)
+    }
+  }
+  lazy val tables: Chunk[Table]   = sections.filterBySectionType(SectionType.CoreTableSection)
+  lazy val mems: Chunk[Mem]       = sections.filterBySectionType(SectionType.CoreMemSection)
+  lazy val globals: Chunk[Global] = sections.filterBySectionType(SectionType.CoreGlobalSection)
+  lazy val elems: Chunk[Elem]     = sections.filterBySectionType(SectionType.CoreElemSection)
+  lazy val datas: Chunk[Data]     = sections.filterBySectionType(SectionType.CoreDataSection)
+  lazy val start: Option[Start]   = sections.filterBySectionType(SectionType.CoreStartSection).headOption
+  lazy val imports: Chunk[Import] = sections.filterBySectionType(SectionType.CoreImportSection)
+  lazy val exports: Chunk[Export] = sections.filterBySectionType(SectionType.CoreExportSection)
+  lazy val custom: Chunk[Custom]  = sections.filterBySectionType(SectionType.CustomSection)
+
+  private lazy val typeIndex: Map[TypeIdx, Section[CoreIndexSpace]]     = sections.indexed(CoreIndexSpace.Type)
+  private lazy val funcIndex: Map[FuncIdx, Section[CoreIndexSpace]]     = sections.indexed(CoreIndexSpace.Func)
+  private lazy val codeIndex: Map[FuncIdx, Section[CoreIndexSpace]]     = sections.indexed(CoreIndexSpace.Code)
+  private lazy val tableIndex: Map[TableIdx, Section[CoreIndexSpace]]   = sections.indexed(CoreIndexSpace.Table)
+  private lazy val memIndex: Map[MemIdx, Section[CoreIndexSpace]]       = sections.indexed(CoreIndexSpace.Mem)
+  private lazy val globalIndex: Map[GlobalIdx, Section[CoreIndexSpace]] = sections.indexed(CoreIndexSpace.Global)
+  private lazy val elemIndex: Map[ElemIdx, Section[CoreIndexSpace]]     = sections.indexed(CoreIndexSpace.Elem)
+  private lazy val dataIndex: Map[DataIdx, Section[CoreIndexSpace]]     = sections.indexed(CoreIndexSpace.Data)
+  private lazy val exportIndex: Map[ExportIdx, Section[CoreIndexSpace]] = sections.indexed(CoreIndexSpace.Export)
+  private lazy val customIndex: Map[CustomIdx, Section[CoreIndexSpace]] = sections.indexed(CoreIndexSpace.Custom)
+
+  lazy val lastTypeIdx: TypeIdx     = TypeIdx.fromInt(typeIndex.size - 1)
+  lazy val lastFuncIdx: FuncIdx     = FuncIdx.fromInt(funcIndex.size - 1)
+  lazy val lastTableIdx: TableIdx   = TableIdx.fromInt(tableIndex.size - 1)
+  lazy val lastMemIdx: MemIdx       = MemIdx.fromInt(memIndex.size - 1)
+  lazy val lastGlobalIdx: GlobalIdx = GlobalIdx.fromInt(globalIndex.size - 1)
+  lazy val lastElemIdx: ElemIdx     = ElemIdx.fromInt(elemIndex.size - 1)
+  lazy val lastDataIdx: DataIdx     = DataIdx.fromInt(dataIndex.size - 1)
+  lazy val lastExportIdx: ExportIdx = ExportIdx.fromInt(exportIndex.size - 1)
+  lazy val lastCustomIdx: CustomIdx = CustomIdx.fromInt(customIndex.size - 1)
+
+  def getFunction(funcIdx: FuncIdx): Option[Import | Func] =
+    funcIndex.get(funcIdx).map {
+      case FuncTypeRef(typeIdx) =>
+        val code = codeIndex(funcIdx).asInstanceOf[FuncCode]
+        Func(typeIdx, code.locals, code.body)
+      case i @ Import(_, _, _)  => i
+    }
+
+  def addType(funcType: FuncType): (Module, TypeIdx) =
+    (
+      this.copy(sections = sections.addToLastGroup(funcType)),
+      lastTypeIdx.next
+    )
+
+  def addTypes(funcTypes: Chunk[FuncType]): Module =
+    this.copy(sections = funcTypes.foldLeft(sections)(_.addToLastGroup(_)))
 
   def addFunction(funcType: FuncType, locals: Chunk[ValType], body: Expr): (Module, FuncIdx) = {
-    val existingIndex         = types.indexOf(funcType)
-    val (typeIndex, newTypes) =
-      if (existingIndex >= 0) (TypeIdx.fromInt(existingIndex), types)
-      else (TypeIdx.fromInt(types.length), types :+ funcType)
-    val func                  = Func(typeIndex, locals, body)
-    val funcIdx               = FuncIdx.fromInt(funcs.length)
+    val existingIndex                = types.indexOf(funcType)
+    val (typeIndex, updatedSections) =
+      if (existingIndex >= 0) (TypeIdx.fromInt(existingIndex), sections)
+      else (TypeIdx.fromInt(types.length), sections.addToLastGroup(funcType))
+    val funcTypeRef                  = FuncTypeRef(typeIndex)
+    val funcCode                     = FuncCode(locals, body)
+    val updatedModule                = Module(updatedSections.addToLastGroup(funcTypeRef).addToLastGroup(funcCode))
     (
-      this.copy(
-        types = newTypes,
-        funcs = funcs :+ func
-      ),
-      funcIdx
+      updatedModule,
+      updatedModule.lastFuncIdx
     )
   }
 
+  def addFunctions(funcs: Chunk[Func]): Module =
+    funcs.foldLeft(this) { case (module, func) =>
+      this.copy(
+        sections = sections.addToLastGroup(FuncTypeRef(func.typ)).addToLastGroup(FuncCode(func.locals, func.body))
+      )
+    }
+
   def addTable(table: Table): (Module, TableIdx) =
     (
-      this.copy(tables = tables :+ table),
-      TableIdx.fromInt(tables.length)
+      this.copy(sections = sections.addToLastGroup(table)),
+      lastTableIdx.next
     )
+
+  def addTables(tables: Chunk[Table]): Module =
+    this.copy(sections = tables.foldLeft(sections)(_.addToLastGroup(_)))
+
+  def addMem(mem: Mem): (Module, MemIdx) =
+    (
+      this.copy(sections = sections.addToLastGroup(mem)),
+      lastMemIdx.next
+    )
+
+  def addMems(mems: Chunk[Mem]): Module =
+    this.copy(sections = mems.foldLeft(sections)(_.addToLastGroup(_)))
+
+  def addGlobal(global: Global): (Module, GlobalIdx) =
+    (
+      this.copy(sections = sections.addToLastGroup(global)),
+      lastGlobalIdx.next
+    )
+
+  def addGlobals(globals: Chunk[Global]): Module =
+    this.copy(sections = globals.foldLeft(sections)(_.addToLastGroup(_)))
+
+  def addElem(elem: Elem): (Module, ElemIdx) =
+    (
+      this.copy(sections = sections.addToLastGroup(elem)),
+      lastElemIdx.next
+    )
+
+  def addElems(elems: Chunk[Elem]): Module =
+    this.copy(sections = elems.foldLeft(sections)(_.addToLastGroup(_)))
+
+  def addData(data: Data): (Module, DataIdx) =
+    (
+      this.copy(
+        sections = sections
+          .addToLastGroup(data)
+          .mapSectionBySectionType(SectionType.CoreDataCountSection)(dc => dc.copy(count = dc.count + 1))
+      ),
+      lastDataIdx.next
+    )
+
+  def addDatas(datas: Chunk[Data]): Module =
+    this.copy(sections = datas.foldLeft(sections)(_.addToLastGroup(_)))
+
+  def addExport(`export`: Export): (Module, ExportIdx) =
+    (
+      this.copy(sections = sections.addToLastGroup(`export`)),
+      lastExportIdx.next
+    )
+
+  def addExports(exports: Chunk[Export]): Module =
+    this.copy(sections = exports.foldLeft(sections)(_.addToLastGroup(_)))
+
+  // TODO: addImport is not straightforward because it shares index space with functions. need to investigate if we can have multiple import groups
 
   lazy val importedFunctions: Map[FuncIdx, (Name, Name, FuncType)] =
     imports
@@ -55,14 +162,20 @@ final case class Module(
       }
       .toMap
 
-  lazy val firstLocalFunctionIndex: FuncIdx = importedFunctions.lastOption.map(_._1.next).getOrElse(FuncIdx.fromInt(0))
+  lazy val firstLocalFunctionIndex: FuncIdx =
+    importedFunctions.lastOption.map(_._1.next).getOrElse(FuncIdx.fromInt(0))
 
   def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
     funcs.foldLeft(initial) { case (s, func) => func.foldLeftRec(s)(f) }
 
+  def mapExports(f: Export => Export): Module =
+    this.copy(
+      sections = sections.mapSectionBySectionType(SectionType.CoreExportSection)(f)
+    )
+
   def mapInstr(f: Instr => Instr): Module =
     this.copy(
-      funcs = funcs.map(_.mapInstr(f))
+      sections = sections.mapSectionBySectionType(SectionType.CoreCodeSection)(_.mapInstr(f))
     )
 
   def typeIdxOf(funcType: FuncType): TypeIdx =
@@ -87,11 +200,11 @@ object TypeIdx {
 
   extension (idx: TypeIdx) {
     def next: TypeIdx = idx + 1
-    def toInt: Int = idx
+    def toInt: Int    = idx
   }
 }
 
-type FuncIdx = FuncIdx.FuncIdx
+type FuncIdx = FuncIdx.FuncIdx // TODO: rename to TypeIdx?
 object FuncIdx {
   opaque type FuncIdx = Int
   def fromInt(value: Int): FuncIdx = value
@@ -108,7 +221,8 @@ object TableIdx {
   def fromInt(value: Int): TableIdx = value
 
   extension (idx: TableIdx) {
-    def toInt: Int = idx
+    def next: TableIdx = idx + 1
+    def toInt: Int     = idx
   }
 }
 
@@ -118,7 +232,8 @@ object MemIdx {
   def fromInt(value: Int): MemIdx = value
 
   extension (idx: MemIdx) {
-    def toInt: Int = idx
+    def next: MemIdx = idx + 1
+    def toInt: Int   = idx
   }
 
 }
@@ -129,7 +244,8 @@ object GlobalIdx {
   def fromInt(value: Int): GlobalIdx = value
 
   extension (idx: GlobalIdx) {
-    def toInt: Int = idx
+    def next: GlobalIdx = idx + 1
+    def toInt: Int      = idx
   }
 }
 
@@ -139,7 +255,8 @@ object ElemIdx {
   def fromInt(value: Int): ElemIdx = value
 
   extension (idx: ElemIdx) {
-    def toInt: Int = idx
+    def next: ElemIdx = idx + 1
+    def toInt: Int    = idx
   }
 }
 
@@ -149,7 +266,8 @@ object DataIdx {
   def fromInt(value: Int): DataIdx = value
 
   extension (idx: DataIdx) {
-    def toInt: Int = idx
+    def next: DataIdx = idx + 1
+    def toInt: Int    = idx
   }
 }
 
@@ -169,6 +287,26 @@ object LabelIdx {
 
   extension (idx: LabelIdx) {
     def toInt: Int = idx
+  }
+}
+
+opaque type ExportIdx = Int
+object ExportIdx {
+  def fromInt(value: Int): ExportIdx = value
+
+  extension (idx: ExportIdx) {
+    def next: ExportIdx = idx + 1
+    def toInt: Int      = idx
+  }
+}
+
+opaque type CustomIdx = Int
+object CustomIdx {
+  def fromInt(value: Int): CustomIdx = value
+
+  extension (idx: CustomIdx) {
+    def next: CustomIdx = idx + 1
+    def toInt: Int      = idx
   }
 }
 
@@ -239,7 +377,9 @@ final case class ResultType(values: Chunk[ValType])
 /** Function types classify the signature of functions, mapping a vector of parameters to a vector of results. They are
   * also used to classify the inputs and outputs of instructions.
   */
-final case class FuncType(input: ResultType, output: ResultType)
+final case class FuncType(input: ResultType, output: ResultType) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreTypeSection
+}
 
 /** Limits classify the size range of resizeable storage associated with memory types and table types.
   *
@@ -281,6 +421,20 @@ enum ExternType {
 
 // Functions
 
+final case class FuncTypeRef(typeIdx: TypeIdx) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreFuncSection
+}
+
+final case class FuncCode(locals: Chunk[ValType], body: Expr) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreCodeSection
+
+  def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
+    body.foldLeftRec(initial)(f)
+
+  def mapInstr(f: Instr => Instr): FuncCode =
+    this.copy(body = body.mapInstr(f))
+}
+
 /** The funcs component of a module defines a vector of functions with the following structure.
   *
   * Functions are referenced through function indices, starting with the smallest index not referencing a function
@@ -298,6 +452,7 @@ enum ExternType {
   *   type.
   */
 final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr) {
+
   def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
     body.foldLeftRec(initial)(f)
 
@@ -317,7 +472,9 @@ final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr) {
   * Tables are referenced through table indices, starting with the smallest index not referencing a table import. Most
   * constructs implicitly reference table index 0.
   */
-final case class Table(tableType: TableType)
+final case class Table(tableType: TableType) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreTableSection
+}
 
 // Memories
 
@@ -333,7 +490,9 @@ final case class Table(tableType: TableType)
   * Memories are referenced through memory indices, starting with the smallest index not referencing a memory import.
   * Most constructs implicitly reference memory index 0.
   */
-final case class Mem(memType: MemType)
+final case class Mem(memType: MemType) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreMemSection
+}
 
 // Globals
 
@@ -344,7 +503,9 @@ final case class Mem(memType: MemType)
   *
   * Globals are referenced through global indices, starting with the smallest index not referencing a global import.
   */
-final case class Global(globalType: GlobalType, init: Expr)
+final case class Global(globalType: GlobalType, init: Expr) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreGlobalSection
+}
 
 // Element segments
 
@@ -368,7 +529,9 @@ enum ElemMode {
   *
   * Element segments are referenced through element indices.
   */
-final case class Elem(refType: RefType, init: Chunk[Expr], mode: ElemMode)
+final case class Elem(refType: RefType, init: Chunk[Expr], mode: ElemMode) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreElemSection
+}
 
 // Data segments
 
@@ -389,14 +552,22 @@ enum DataMode {
   *
   * Data segments are referenced through data indices.
   */
-final case class Data(init: Chunk[Byte], mode: DataMode)
+final case class Data(init: Chunk[Byte], mode: DataMode) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreDataSection
+}
+
+final case class DataCount(count: Int) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreDataCountSection
+}
 
 // Start function
 
 /** The start component of a module declares the function index of a start function that is automatically invoked when
   * the module is instantiated, after tables and memories have been initialized.
   */
-final case class Start(func: FuncIdx)
+final case class Start(func: FuncIdx) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreStartSection
+}
 
 // Exports
 enum ExportDesc {
@@ -412,15 +583,17 @@ enum ExportDesc {
   * Each export is labeled by a unique name. Exportable definitions are functions, tables, memories, and globals, which
   * are referenced through a respective descriptor.
   */
-final case class Export(name: Name, desc: ExportDesc)
+final case class Export(name: Name, desc: ExportDesc) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreExportSection
+}
 
 // Imports
 
 enum ImportDesc {
   case Func(funcIdx: FuncIdx)
-  case Table(tableIdx: TableIdx)
-  case Mem(memIdx: MemIdx)
-  case Global(globalIdx: GlobalIdx)
+  case Table(tableIdx: TableType)
+  case Mem(memIdx: MemType)
+  case Global(globalIdx: GlobalType)
 }
 
 /** The imports component of a module defines a set of imports that are required for instantiation.
@@ -432,9 +605,13 @@ enum ImportDesc {
   * Every import defines an index in the respective index space. In each index space, the indices of imports go before
   * the first index of any definition contained in the module itself.
   */
-final case class Import(module: Name, name: Name, desc: ImportDesc)
+final case class Import(module: Name, name: Name, desc: ImportDesc) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreImportSection
+}
 
-final case class Custom(name: Name, data: Chunk[Byte])
+final case class Custom(name: Name, data: Chunk[Byte]) extends Section[CoreIndexSpace] {
+  override def sectionType: SectionType[CoreIndexSpace] = SectionType.CustomSection
+}
 
 // Instructions
 
@@ -923,12 +1100,26 @@ final case class Expr(instructions: Chunk[Instr]) {
     this.copy(instructions = instructions.map(_.mapInstr(f)))
 }
 
+enum Type {
+  case Func(funcType: FuncType)
+}
+
 opaque type Name = String
 object Name {
   def fromString(name: String): Name      = name
   def fromBytes(bytes: Chunk[Byte]): Name = new String(bytes.toArray, StandardCharsets.UTF_8)
+
+  extension (name: Name) {
+    def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+  }
 }
 
-extension (name: Name) {
-  def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+opaque type Url = String
+object Url {
+  def fromString(name: String): Url      = name
+  def fromBytes(bytes: Chunk[Byte]): Url = new String(bytes.toArray, StandardCharsets.UTF_8)
+
+  extension (name: Url) {
+    def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
+  }
 }

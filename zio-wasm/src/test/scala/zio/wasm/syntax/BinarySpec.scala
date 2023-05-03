@@ -292,6 +292,14 @@ object BinarySpec extends ZIOSpecDefault {
             } yield assertTrue(result == instr)
           }
         } @@ TestAspect.size(1000) @@ TestAspect.samples(10000)
-      )
+      ),
+      test("full module") {
+        check(AstGen.module) { module =>
+          for {
+            bytes  <- ZIO.fromEither(Binary.module.print(module))
+            result <- ZIO.fromEither(Binary.module.parseChunk(bytes))
+          } yield assertTrue(result == module)
+        }
+      }
     )
 }

@@ -1,26 +1,16 @@
 package zio.wasm.syntax
 
-import zio.{Chunk, ChunkBuilder}
+import zio.{Chunk, ChunkBuilder, NonEmptyChunk}
 import zio.parser.*
 import zio.parser.Parser.ParserError
 import zio.parser.ParserOps
+import zio.prelude.*
 import zio.wasm.*
+import zio.wasm.internal.BinarySyntax.*
 
 import scala.reflect.ClassTag
 
 object Binary {
-  val mediaType: String        = "application/wasm"
-  val defaultExtension: String = ".wasm"
-
-  type BinarySyntax[A] = Syntax[SyntaxError, Byte, Byte, A]
-  type BinaryReader[A] = Parser[SyntaxError, Byte, A]
-  type BinaryWriter[A] = Printer[SyntaxError, Byte, A]
-
-  private val anyByte  = Syntax.any[Byte]
-  private val anyBytes = anyByte.*
-
-  private def specificByte(value: Byte): Syntax[SyntaxError, Byte, Byte, Byte] =
-    anyByte.filter(_ == value, SyntaxError.UnexpectedByte)
 
   // LEB128 code based on https://github.com/facebook/buck/blob/main/third-party/java/dx/src/com/android/dex/Leb128.java
 
@@ -294,6 +284,12 @@ object Binary {
     (parser <=> printer) ?? "vec"
   }
 
+  private[wasm] def vec1[A](elem: BinarySyntax[A]): BinarySyntax[NonEmptyChunk[A]] =
+    vec[A](elem).transformEither(
+      c => NonEmptyChunk.fromChunk(c).toRight(SyntaxError.EmptyVector),
+      nec => Right(nec.toChunk)
+    )
+
   private[wasm] val name: BinarySyntax[Name] =
     vec(anyByte).transform(
       bytes => Name.fromBytes(bytes),
@@ -353,6 +349,15 @@ object Binary {
       { case (_, params, results) => FuncType(params, results) },
       { case FuncType(params, results) => (0x60, params, results) }
     ) ?? "funcType"
+
+  private[wasm] val `type`: BinarySyntax[Type] =
+    funcType.transformEither(
+      t => Right(Type.Func(t)),
+      {
+        case Type.Func(t) => Right(t)
+        case _            => Left(SyntaxError.InvalidCase)
+      }
+    ) ?? "type"
 
   private[wasm] val limits: BinarySyntax[Limits] =
     (specificByte(0x00) ~ u32)
@@ -632,7 +637,7 @@ object Binary {
             case 13         => Binary.elemIdx.asParser.to[Instr.ElemDrop]
             case 11         => specificByte(0x00).asParser.as(Instr.MemoryFill)
             case 10         => (specificByte(0x00) ~ specificByte(0x00)).asParser.as(Instr.MemoryCopy)
-            case 8          => (Binary.dataIdx <~ specificByte(0x00).unit(0x00)).asParser.to[Instr.MemoryInit]
+            case 8          => (Binary.dataIdx <~ specificByte_(0x00)).asParser.to[Instr.MemoryInit]
             case 9          => Binary.dataIdx.asParser.to[Instr.DataDrop]
             case other: Int => Parser.fail(SyntaxError.InvalidOpcode(Some(0xfc.toByte), other))
           }
@@ -945,16 +950,16 @@ object Binary {
         case 0x00 => Parser.succeed(Instr.Unreachable)
         case 0x02 =>
           (Binary.blockType ~ Binary.instr
-            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .repeatUntil(specificByte_(0x0b.toByte).backtrack)).asParser
             .to[Instr.Block]
         case 0x03 =>
           (Binary.blockType ~ Binary.instr
-            .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)).asParser
+            .repeatUntil(specificByte_(0x0b.toByte).backtrack)).asParser
             .to[Instr.Loop]
         case 0x04 =>
           Binary.blockType.asParser.flatMap { blockType =>
             (Binary.instr <+> anyByte.filter(b => b == 0x05, SyntaxError.UnexpectedByte)).autoBacktracking
-              .repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack)
+              .repeatUntil(specificByte_(0x0b.toByte).backtrack)
               .asParser
               .map { instrs =>
                 val (trueInstr, falseInstr) = instrs.splitWhere(_.isRight)
@@ -1964,22 +1969,35 @@ object Binary {
     private def opcode(code: Byte): Printer[Nothing, Byte, Any] = Printer.print(code)
 
     private def instructionSequence(instructions: Chunk[Instr], terminatedBy: Byte) =
-      Binary.instr.repeatUntil(specificByte(terminatedBy).unit(terminatedBy)).asPrinter(instructions)
+      Binary.instr.repeatUntil(specificByte_(terminatedBy)).asPrinter(instructions)
   }
 
   private[wasm] val instr: BinarySyntax[Instr] = (Instructions.read <=> Instructions.write) ?? "instr"
 
   private[wasm] val expr: BinarySyntax[Expr] =
-    instr.repeatUntil(specificByte(0x0b.toByte).unit(0x0b.toByte).backtrack).of[Expr] ?? "expr"
+    instr.repeatUntil(specificByte_(0x0b.toByte).backtrack).of[Expr] ?? "expr"
 
   private[wasm] opaque type SectionId = Byte
-
-  private[wasm] final case class Section(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
-    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
-      (syntax).parseChunk(rawContents).left.map(SyntaxError.InnerParserError.apply)
+  private[wasm] object SectionId {
+    def fromByte(byte: Byte): SectionId = byte
   }
 
-  private[wasm] object Section {
+  private[wasm] final case class RawSection(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
+    def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
+//      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
+      (syntax)
+        .parseChunk(rawContents)
+        .left
+        .map { err =>
+          println(s" => $err"); SyntaxError.InnerParserError(err)
+        }
+        .map { v =>
+//          println(s" => $v")
+          v
+        }
+  }
+
+  private[wasm] object RawSection {
     val custom: SectionId    = 0
     val `type`: SectionId    = 1
     val `import`: SectionId  = 2
@@ -1994,19 +2012,19 @@ object Binary {
     val data: SectionId      = 11
     val dataCount: SectionId = 12
 
-    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, Section] =
+    def of[T](id: SectionId, syntax: BinarySyntax[T], value: T): Either[SyntaxError, RawSection] =
       syntax.print(value).map { rawContents =>
-        Section(id, rawContents.size, rawContents)
+        RawSection(id, rawContents.size, rawContents)
       }
   }
 
-  private[wasm] val section: BinarySyntax[Section] = {
+  private[wasm] val section: BinarySyntax[RawSection] = {
     val parser  = (anyByte ~ u32).asParser.flatMap { case (id, size) =>
       anyByte.asParser.exactly(size).map { rawContents =>
-        Section(id, size, rawContents)
+        RawSection(id, size, rawContents)
       }
     }
-    val printer = Printer.byValue { (section: Section) =>
+    val printer = Printer.byValue { (section: RawSection) =>
       Printer.print(section.id) ~>
         u32.asPrinter(section.size) ~>
         anyBytes.asPrinter(section.rawContents)
@@ -2015,46 +2033,46 @@ object Binary {
     parser <=> printer
   }
 
-  private val magic =
-    specificByte(0x00).unit(0x00) ~>
-      specificByte(0x61).unit(0x61) ~>
-      specificByte(0x73).unit(0x73) ~>
-      specificByte(0x6d).unit(0x6d)
+  private[wasm] val magic =
+    specificByte_(0x00) ~>
+      specificByte_(0x61) ~>
+      specificByte_(0x73) ~>
+      specificByte_(0x6d)
 
   private val version =
-    specificByte(0x01).unit(0x01) ~>
-      specificByte(0x00).unit(0x00) ~>
-      specificByte(0x00).unit(0x00) ~>
-      specificByte(0x00).unit(0x00)
+    specificByte_(0x01) ~>
+      specificByte_(0x00) ~>
+      specificByte_(0x00) ~>
+      specificByte_(0x00)
 
   private val typeSection: BinarySyntax[Chunk[FuncType]] = vec(funcType) ?? "typeSection"
 
   private val importDesc: BinarySyntax[ImportDesc] =
-    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+    ((specificByte_(0x00) ~> funcIdx).transformTo(
       ImportDesc.Func.apply,
       { case ImportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidImportDesc
     ) <>
-      (specificByte(0x01).unit(0x01) ~> tableIdx).transformTo(
+      (specificByte_(0x01) ~> tableType).transformTo(
         ImportDesc.Table.apply,
-        { case ImportDesc.Table(tableIdx) => tableIdx },
+        { case ImportDesc.Table(tableType) => tableType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x02).unit(0x02) ~> memIdx).transformTo(
+      (specificByte_(0x02) ~> memoryType).transformTo(
         ImportDesc.Mem.apply,
-        { case ImportDesc.Mem(memIdx) => memIdx },
+        { case ImportDesc.Mem(memType) => memType },
         SyntaxError.InvalidImportDesc
       ) <>
-      (specificByte(0x03).unit(0x03) ~> globalIdx).transformTo(
+      (specificByte_(0x03) ~> globalType).transformTo(
         ImportDesc.Global.apply,
-        { case ImportDesc.Global(globalIdx) => globalIdx },
+        { case ImportDesc.Global(globalType) => globalType },
         SyntaxError.InvalidImportDesc
       )) ?? "importDesc"
 
-  private val `import`: BinarySyntax[Import]             = (name ~ name ~ importDesc).of[Import] ?? "import"
+  private[wasm] val `import`: BinarySyntax[Import]       = (name ~ name ~ importDesc).of[Import] ?? "import"
   private val importSection: BinarySyntax[Chunk[Import]] = vec(`import`) ?? "importSection"
 
-  private val functionSection: BinarySyntax[Chunk[TypeIdx]] = vec(typeIdx) ?? "functionSection"
+  private val functionSection: BinarySyntax[Chunk[FuncTypeRef]] = vec(typeIdx.of[FuncTypeRef]) ?? "functionSection"
 
   private val table: BinarySyntax[Table]               = tableType.of[Table] ?? "table"
   private val tableSection: BinarySyntax[Chunk[Table]] = vec(table) ?? "tableSection"
@@ -2065,35 +2083,35 @@ object Binary {
   private val global: BinarySyntax[Global]               = (globalType ~ expr).of[Global] ?? "global"
   private val globalSection: BinarySyntax[Chunk[Global]] = vec(global) ?? "globalSection"
 
-  private val exportDesc: BinarySyntax[ExportDesc]       =
-    ((specificByte(0x00).unit(0x00) ~> funcIdx).transformTo(
+  private[wasm] val exportDesc: BinarySyntax[ExportDesc] =
+    ((specificByte_(0x00) ~> funcIdx).transformTo(
       ExportDesc.Func.apply,
       { case ExportDesc.Func(funcIdx) => funcIdx },
       SyntaxError.InvalidExportDesc
     ) <>
-      (specificByte(0x01).unit(0x01) ~> tableIdx).transformTo(
+      (specificByte_(0x01) ~> tableIdx).transformTo(
         ExportDesc.Table.apply,
         { case ExportDesc.Table(tableIdx) => tableIdx },
         SyntaxError.InvalidExportDesc
       ) <>
-      (specificByte(0x02).unit(0x02) ~> memIdx).transformTo(
+      (specificByte_(0x02) ~> memIdx).transformTo(
         ExportDesc.Mem.apply,
         { case ExportDesc.Mem(memIdx) => memIdx },
         SyntaxError.InvalidExportDesc
       ) <>
-      (specificByte(0x03).unit(0x03) ~> globalIdx).transformTo(
+      (specificByte_(0x03) ~> globalIdx).transformTo(
         ExportDesc.Global.apply,
         { case ExportDesc.Global(globalIdx) => globalIdx },
         SyntaxError.InvalidExportDesc
       )) ?? "exportDesc"
-  private val `export`: BinarySyntax[Export]             = (name ~ exportDesc).of[Export] ?? "export"
+  private[wasm] val `export`: BinarySyntax[Export]       = (name ~ exportDesc).of[Export] ?? "export"
   private val exportSection: BinarySyntax[Chunk[Export]] = vec(`export`) ?? "exportSection"
 
   private val start: BinarySyntax[Start]        = funcIdx.of[Start] ?? "start"
   private val startSection: BinarySyntax[Start] = start ?? "startSection"
 
   private val elemKind: BinarySyntax[RefType] =
-    anyByte.transformEither(
+    anyByte.transformEither[SyntaxError, RefType](
       {
         case 0x00 => Right(RefType.FuncRef)
         case _    => Left(SyntaxError.InvalidElemKind)
@@ -2187,10 +2205,10 @@ object Binary {
   }
   private val elemSection: BinarySyntax[Chunk[Elem]] = vec(elem) ?? "elemSection"
 
-  private val locals: BinarySyntax[(Int, ValType)]                            = (u32 ~ valType) ?? "locals"
-  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               =
+  private val locals: BinarySyntax[(Int, ValType)]              = (u32 ~ valType) ?? "locals"
+  private val func: BinarySyntax[(Chunk[(Int, ValType)], Expr)] =
     (vec(locals) ~ expr) ?? "func"
-  private val code: BinarySyntax[(Chunk[(Int, ValType)], Expr)]               = {
+  private val code: BinarySyntax[FuncCode]                      = {
     val parser  = (u32.unit(0) ~> func).asParser
     val printer = Printer.byValue { (value: (Chunk[(Int, ValType)], Expr)) =>
       func.print(value) match {
@@ -2199,9 +2217,12 @@ object Binary {
       }
     }
 
-    (parser <=> printer) ?? "code"
+    (parser <=> printer).transform(
+      { case (locals, body) => FuncCode(uncompressLocals(locals), body) },
+      (code: FuncCode) => (compressLocals(code.locals), code.body)
+    ) ?? "code"
   }
-  private val codeSection: BinarySyntax[Chunk[(Chunk[(Int, ValType)], Expr)]] = vec(code) ?? "codeSection"
+  private val codeSection: BinarySyntax[Chunk[FuncCode]]        = vec(code) ?? "codeSection"
 
   private val data: BinarySyntax[Data]               = {
     val parser = u32.asParser.flatMap {
@@ -2260,108 +2281,72 @@ object Binary {
   private def uncompressLocals(locals: Chunk[(Int, ValType)]): Chunk[ValType] =
     locals.flatMap { case (n, vt) => Chunk.fill(n)(vt) }
 
-  private def fromSections(sections: Chunk[Section]): Either[SyntaxError, Module] = {
-    def section[T](id: SectionId, syntax: BinarySyntax[T], empty: T): Either[SyntaxError, T] =
-      sections
-        .find(_.id == id)
-        .map { section =>
-          section.to(syntax)
-        }
-        .getOrElse(Right(empty))
+  private def fromSections(sections: Chunk[RawSection]): Either[SyntaxError, Module] = {
+    def loadSection(section: RawSection): Either[SyntaxError, Chunk[Section[CoreIndexSpace]]] =
+      section.id match {
+        case RawSection.`type`   => section.to(typeSection)
+        case RawSection.`import` => section.to(importSection)
+        case RawSection.function => section.to(functionSection)
+        case RawSection.code     => section.to(codeSection)
+        case RawSection.table    => section.to(tableSection)
+        case RawSection.memory   => section.to(memorySection)
+        case RawSection.global   => section.to(globalSection)
+        case RawSection.element  => section.to(elemSection)
+        case RawSection.data     => section.to(dataSection)
+        case RawSection.start    => section.to(startSection).map(Chunk.single)
+        case RawSection.`export` => section.to(exportSection)
+        case _                   => section.to(name ~ anyBytes).map { case (n, bs) => Chunk(Custom(n, bs)) }
+      }
 
-    def customSections: Either[SyntaxError, Chunk[Custom]] =
-      sections
-        .filter(_.id == Section.custom)
-        .map { section =>
-          section.to(name ~ anyBytes).map { case (n, bs) =>
-            Custom(n, bs)
-          }
-        }
-        .foldLeft[Either[SyntaxError, Chunk[Custom]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
-        }
-
-    for {
-      ts       <- section(Section.`type`, typeSection, Chunk.empty)
-      funTypes <- section(Section.function, functionSection, Chunk.empty)
-      codes    <- section(Section.code, codeSection, Chunk.empty)
-      _        <- if (funTypes.size == codes.size) Right(())
-                  else Left(SyntaxError.FunctionAndCodeSectionSizeMismatch)
-      fs        = funTypes.zip(codes).map { case (funType, (compressedLocals, body)) =>
-                    Func(funType, uncompressLocals(compressedLocals), body)
-                  }
-      tbls     <- section(Section.table, tableSection, Chunk.empty)
-      ms       <- section(Section.memory, memorySection, Chunk.empty)
-      gs       <- section(Section.global, globalSection, Chunk.empty)
-      es       <- section(Section.element, elemSection, Chunk.empty)
-      ds       <- section(Section.data, dataSection, Chunk.empty)
-      s        <- section[Option[Start]](Section.start, startSection.transform(Some(_), _.get), None)
-      imps     <- section(Section.`import`, importSection, Chunk.empty)
-      exps     <- section(Section.`export`, exportSection, Chunk.empty)
-      custom   <- customSections
-    } yield Module(
-      ts,
-      fs,
-      tbls,
-      ms,
-      gs,
-      es,
-      ds,
-      s,
-      imps,
-      exps,
-      custom
-    )
+    sections.forEach(loadSection).map { sections =>
+      Module(Sections.fromGrouped(sections))
+    }
   }
 
-  private def toSections(module: Module): Either[SyntaxError, Chunk[Section]] = {
-    def section[T](
-        condition: Boolean,
-        id: SectionId,
-        syntax: BinarySyntax[T],
-        value: => T
-    ): Either[SyntaxError, Chunk[Section]] =
-      if (condition) Section.of(id, syntax, value).map(Chunk.single)
-      else Right(Chunk.empty)
-
-    def customSection: Either[SyntaxError, Chunk[Section]] =
-      module.custom
-        .map { custom =>
+  private def toSections(module: Module): Either[SyntaxError, Chunk[RawSection]] = {
+    def encodeGroup(
+        sectionType: SectionType[CoreIndexSpace],
+        sections: Chunk[Section[CoreIndexSpace]]
+    ): Either[SyntaxError, RawSection] =
+      sectionType match {
+        case SectionType.CoreTypeSection      =>
+          RawSection.of(sectionType.binaryId, typeSection, sections.asInstanceOf[Chunk[FuncType]])
+        case SectionType.CoreImportSection    =>
+          RawSection.of(sectionType.binaryId, importSection, sections.asInstanceOf[Chunk[Import]])
+        case SectionType.CoreFuncSection      =>
+          RawSection.of(sectionType.binaryId, functionSection, sections.asInstanceOf[Chunk[FuncTypeRef]])
+        case SectionType.CoreTableSection     =>
+          RawSection.of(sectionType.binaryId, tableSection, sections.asInstanceOf[Chunk[Table]])
+        case SectionType.CoreMemSection       =>
+          RawSection.of(sectionType.binaryId, memorySection, sections.asInstanceOf[Chunk[Mem]])
+        case SectionType.CoreGlobalSection    =>
+          RawSection.of(sectionType.binaryId, globalSection, sections.asInstanceOf[Chunk[Global]])
+        case SectionType.CoreExportSection    =>
+          RawSection.of(sectionType.binaryId, exportSection, sections.asInstanceOf[Chunk[Export]])
+        case SectionType.CoreStartSection     =>
+          RawSection.of(sectionType.binaryId, startSection, sections.head.asInstanceOf[Start])
+        case SectionType.CoreElemSection      =>
+          RawSection.of(sectionType.binaryId, elemSection, sections.asInstanceOf[Chunk[Elem]])
+        case SectionType.CoreDataSection      =>
+          RawSection.of(sectionType.binaryId, dataSection, sections.asInstanceOf[Chunk[Data]])
+        case SectionType.CoreCodeSection      =>
+          RawSection.of(sectionType.binaryId, codeSection, sections.asInstanceOf[Chunk[FuncCode]])
+        case SectionType.CoreDataCountSection =>
+          RawSection.of(sectionType.binaryId, dataCountSection, sections.size)
+        case SectionType.CustomSection        =>
+          val custom = sections.head.asInstanceOf[Custom]
           name.asPrinter.print(custom.name).map { nameBytes =>
             val data = nameBytes ++ custom.data
-            Section(Section.custom, data.size, data)
+            RawSection(RawSection.custom, data.size, data)
           }
-        }
-        .foldLeft[Either[SyntaxError, Chunk[Section]]](Right(Chunk.empty)) {
-          case (Right(r), Right(section)) => Right(r :+ section)
-          case (Left(err), _)             => Left(err)
-          case (Right(_), Left(err))      => Left(err)
-        }
+      }
 
-    for {
-      ts     <- section(module.types.nonEmpty, Section.`type`, typeSection, module.types)
-      fs     <- section(module.funcs.nonEmpty, Section.function, functionSection, module.funcs.map(_.typ))
-      cs     <- section(
-                  module.funcs.nonEmpty,
-                  Section.code,
-                  codeSection,
-                  module.funcs.map(f => (compressLocals(f.locals), f.body))
-                )
-      tbls   <- section(module.tables.nonEmpty, Section.table, tableSection, module.tables)
-      ms     <- section(module.mems.nonEmpty, Section.memory, memorySection, module.mems)
-      gs     <- section(module.globals.nonEmpty, Section.global, globalSection, module.globals)
-      es     <- section(module.elems.nonEmpty, Section.element, elemSection, module.elems)
-      ds     <- section(module.datas.nonEmpty, Section.data, dataSection, module.datas)
-      s      <- section(module.start.nonEmpty, Section.start, startSection, module.start.get)
-      imps   <- section(module.imports.nonEmpty, Section.`import`, importSection, module.imports)
-      exps   <- section(module.exports.nonEmpty, Section.`export`, exportSection, module.exports)
-      dc     <- section(true, Section.dataCount, dataCountSection, module.datas.size)
-      custom <- customSection
-    } yield ts ++ imps ++ fs ++ tbls ++ ms ++ gs ++ exps ++ s ++ es ++ dc ++ cs ++ ds ++ custom
+    module.sections.toGrouped.forEach { case (sectionType, sections) => encodeGroup(sectionType, sections) }
   }
 
+  private val moduleValue: BinarySyntax[Module] =
+    section.repeat0.transformEither(fromSections, toSections) ?? "module"
+
   val module: BinarySyntax[Module] =
-    (magic ~> version ~> section.repeat).transformEither(fromSections, toSections) ?? "module"
+    (magic ~> version ~> moduleValue) ?? "module file"
 }

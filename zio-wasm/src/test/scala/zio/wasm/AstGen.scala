@@ -1,5 +1,6 @@
 package zio.wasm
 
+import zio.Chunk
 import zio.test.*
 
 object AstGen {
@@ -111,6 +112,9 @@ object AstGen {
 
   val typeIdx: Gen[Any, TypeIdx] =
     Gen.int.map(TypeIdx.fromInt)
+
+  val memIdx: Gen[Any, MemIdx] =
+    Gen.int.map(MemIdx.fromInt)
 
   val memArg: Gen[Any, MemArg] =
     for {
@@ -404,5 +408,146 @@ object AstGen {
       Gen.const(Instr.Return),
       funcIdx.map(Instr.Call.apply),
       tableIdx.zip(typeIdx).map(Instr.CallIndirect.apply)
+    )
+
+  val name: Gen[Any, Name] =
+    Gen.string1(Gen.alphaNumericChar).map(Name.fromString)
+
+  val url: Gen[Any, Url] =
+    Gen.string1(Gen.alphaNumericChar).map(Url.fromString)
+
+  val exportDesc: Gen[Any, ExportDesc] =
+    Gen.oneOf(
+      funcIdx.map(ExportDesc.Func.apply),
+      tableIdx.map(ExportDesc.Table.apply),
+      memIdx.map(ExportDesc.Mem.apply),
+      globalIdx.map(ExportDesc.Global.apply)
+    )
+
+  val memType: Gen[Any, MemType] =
+    limits.map(MemType.apply)
+
+  val importDesc: Gen[Any, ImportDesc] =
+    Gen.oneOf(
+      funcIdx.map(ImportDesc.Func.apply),
+      tableType.map(ImportDesc.Table.apply),
+      memType.map(ImportDesc.Mem.apply),
+      globalType.map(ImportDesc.Global.apply)
+    )
+
+  val `import`: Gen[Any, Import] =
+    for {
+      module <- name
+      name <- name
+      desc <- importDesc
+    } yield Import(module, name, desc)
+
+  val `export`: Gen[Any, Export] =
+    for {
+      name <- name
+      desc <- exportDesc
+    } yield Export(name, desc)
+
+  val expr: Gen[Any, Expr] =
+    Gen.chunkOf(instr).map(Expr.apply)
+
+  val funcTypeRef: Gen[Any, FuncTypeRef] =
+    typeIdx.map(FuncTypeRef.apply)
+
+  val funcCode: Gen[Any, FuncCode] =
+    for {
+      locals <- Gen.chunkOf(valType)
+      body <- expr
+    } yield FuncCode(locals, body)
+
+  val func: Gen[Any, Func] =
+    for {
+      idx <- typeIdx
+      locals <- Gen.chunkOf(valType)
+      body <- expr
+    } yield Func(idx, locals, body)
+
+  val table: Gen[Any, Table] =
+    for {
+      tpe <- tableType
+    } yield Table(tpe)
+
+  val mem: Gen[Any, Mem] =
+    for {
+      tpe <- memType
+    } yield Mem(tpe)
+
+  val global: Gen[Any, Global] =
+    for {
+      tpe <- globalType
+      init <- expr
+    } yield Global(tpe, init)
+
+  val elemMode: Gen[Any, ElemMode] =
+    Gen.oneOf(
+      Gen.const(ElemMode.Passive),
+      Gen.const(ElemMode.Declarative),
+      for {
+        table <- tableIdx
+        offset <- expr
+      } yield ElemMode.Active(table, offset)
+    )
+
+  val elem: Gen[Any, Elem] =
+    for {
+      rt <- Gen.const(RefType.FuncRef) // TODO: there are some combinations where ExternRef is valid too
+      init <- Gen.chunkOf(expr)
+      mode <- elemMode
+    } yield Elem(rt, init, mode)
+
+  val dataMode: Gen[Any, DataMode] =
+    Gen.oneOf(
+      Gen.const(DataMode.Passive),
+      for {
+        mem <- memIdx
+        offset <- expr
+      } yield DataMode.Active(mem, offset)
+    )
+
+  val data: Gen[Any, Data] =
+    for {
+      init <- Gen.chunkOf(Gen.byte)
+      mode <- dataMode
+    } yield Data(init, mode)
+
+  val start: Gen[Any, Start] =
+    funcIdx.map(Start.apply)
+
+  val module: Gen[Any, Module] =
+    for {
+      types <- Gen.chunkOf(funcType)
+      funcTypeRefs <- Gen.chunkOf(funcTypeRef)
+      funcCodes <- Gen.chunkOf(funcCode)
+      tables <- Gen.chunkOf(table)
+      mems <- Gen.chunkOf(mem)
+      globals <- Gen.chunkOf(global)
+      elems <- Gen.chunkOf(elem)
+      datas <- Gen.chunkOf(data)
+      start <- Gen.option(start)
+      imports <- Gen.chunkOf(`import`)
+      exports <- Gen.chunkOf(`export`)
+      custom = Chunk.empty[Section[CoreIndexSpace]]
+    } yield Module(
+      Sections.fromGrouped(
+        Chunk(
+          types,
+          funcTypeRefs,
+          funcCodes,
+          tables,
+          mems,
+          globals,
+          elems,
+          datas,
+          Chunk.fromIterable(start),
+          imports,
+          exports,
+          custom
+        )
+      )
     )
 }

@@ -16,6 +16,7 @@ enum SyntaxError {
   case InvalidElemKind
   case InnerParserError(error: ParserError[SyntaxError])
   case FunctionAndCodeSectionSizeMismatch
+  case EmptyVector
 
   override def toString: String = this match {
     case InvalidLEB128                      => "Invalid LEB128"
@@ -33,5 +34,6 @@ enum SyntaxError {
     case InvalidElemKind                    => "Invalid elem kind"
     case InnerParserError(error)            => error.toString
     case FunctionAndCodeSectionSizeMismatch => "Function and code section size mismatch"
+    case EmptyVector                        => "Unexpected empty vector"
   }
 }

@@ -1,12 +1,11 @@
 import BuildHelper.*
-import xerial.sbt.Sonatype.GitHubHosting
 
 inThisBuild(
   List(
-    organization           := "dev.zio",
-    homepage               := Some(url("https://zio.dev/zio-wasm/")),
-    licenses               := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
-    developers             := List(
+    organization := "dev.zio",
+    homepage     := Some(url("https://zio.dev/zio-wasm/")),
+    licenses     := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
+    developers   := List(
       Developer(
         "jdegoes",
         "John De Goes",
@@ -19,28 +18,7 @@ inThisBuild(
         "daniel.vigovszky@gmail.com",
         url("https://vigoo.github.io/")
       )
-    ),
-    resolvers +=
-      "Sonatype OSS Snapshots 01" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
-    publishTo              := sonatypePublishToBundle.value,
-    sonatypeTimeoutMillis  := 300 * 60 * 1000,
-    sonatypeProjectHosting := Some(
-      GitHubHosting("zio", "zio-wasm", "daniel.vigovszky@gmail.com")
-    ),
-    sonatypeCredentialHost := "oss.sonatype.org",
-    sonatypeRepository     := "https://oss.sonatype.org/service/local",
-    credentials ++=
-      (for {
-        username <- Option(System.getenv().get("SONATYPE_USERNAME"))
-        password <- Option(System.getenv().get("SONATYPE_PASSWORD"))
-      } yield Credentials(
-        "Sonatype Nexus Repository Manager",
-        "oss.sonatype.org",
-        username,
-        password
-      )).toSeq,
-    resolvers +=
-      "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
+    )
   )
 )
 
@@ -64,9 +42,8 @@ lazy val root = (project in file("."))
 lazy val zioWasm =
   (project in file("zio-wasm"))
     .settings(stdSettings("zio-wasm"))
-    .settings(dottySettings)
     .settings(
-      scalaVersion       := ScalaDotty,
+      scalaVersion       := Scala3,
       crossScalaVersions := Nil,
       libraryDependencies ++= Seq(
         "dev.zio" %% "zio"          % zioVersion,
@@ -85,7 +62,7 @@ lazy val docs = project
   .settings(stdSettings("zio-wasm"))
   .settings(macroDefinitionSettings)
   .settings(
-    scalaVersion                               := ScalaDotty,
+    scalaVersion                               := Scala3,
     publish / skip                             := true,
     moduleName                                 := "zio-wasm-docs",
     scalacOptions -= "-Yno-imports",

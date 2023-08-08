@@ -44,7 +44,7 @@ lazy val zioWasm =
     .settings(stdSettings("zio-wasm"))
     .settings(
       scalaVersion       := Scala3,
-      crossScalaVersions := Nil,
+      crossScalaVersions := Seq(Scala3),
       libraryDependencies ++= Seq(
         "dev.zio" %% "zio"          % zioVersion,
         "dev.zio" %% "zio-nio"      % zioNioVersion,

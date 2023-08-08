@@ -514,8 +514,8 @@ object Binary {
 
   private def toSections(component: Component): Either[SyntaxError, Chunk[RawSection]] = {
     def encodeGroup(
-      sectionType: SectionType[ComponentIndexSpace],
-      sections: Chunk[Section[ComponentIndexSpace]]
+        sectionType: SectionType[ComponentIndexSpace],
+        sections: Chunk[Section[ComponentIndexSpace]]
     ): Either[SyntaxError, RawSection] =
       sectionType match {
         case ComponentSectionType.ComponentTypeSection         =>

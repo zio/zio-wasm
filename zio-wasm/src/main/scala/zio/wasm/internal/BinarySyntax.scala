@@ -43,26 +43,26 @@ private[wasm] object BinarySyntax {
   }
 
   def casesByPrefix[T, S1 <: T: ClassTag, S2 <: T: ClassTag](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[T, S1 <: T: ClassTag, S2 <: T: ClassTag, S3 <: T: ClassTag](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
       (case3._1.asSyntax ~> case3._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[T, S1 <: T: ClassTag, S2 <: T: ClassTag, S3 <: T: ClassTag, S4 <: T: ClassTag](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -70,13 +70,13 @@ private[wasm] object BinarySyntax {
       (case4._1.asSyntax ~> case4._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[T, S1 <: T: ClassTag, S2 <: T: ClassTag, S3 <: T: ClassTag, S4 <: T: ClassTag, S5 <: T: ClassTag](
-    name: String
+      name: String
   )(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -85,22 +85,22 @@ private[wasm] object BinarySyntax {
       (case5._1.asSyntax ~> case5._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag
   ](
-    name: String
+      name: String
   )(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -110,24 +110,24 @@ private[wasm] object BinarySyntax {
       (case6._1.asSyntax ~> case6._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag
   ](
-    name: String
+      name: String
   )(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -138,24 +138,24 @@ private[wasm] object BinarySyntax {
       (case7._1.asSyntax ~> case7._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag,
-    S8 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag,
+      S8 <: T: ClassTag
   ](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7]),
-    case8: => (Prefix, BinarySyntax[S8])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7]),
+      case8: => (Prefix, BinarySyntax[S8])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -167,26 +167,26 @@ private[wasm] object BinarySyntax {
       (case8._1.asSyntax ~> case8._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag,
-    S8 <: T: ClassTag,
-    S9 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag,
+      S8 <: T: ClassTag,
+      S9 <: T: ClassTag
   ](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7]),
-    case8: => (Prefix, BinarySyntax[S8]),
-    case9: => (Prefix, BinarySyntax[S9])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7]),
+      case8: => (Prefix, BinarySyntax[S8]),
+      case9: => (Prefix, BinarySyntax[S9])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -199,28 +199,28 @@ private[wasm] object BinarySyntax {
       (case9._1.asSyntax ~> case9._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag,
-    S8 <: T: ClassTag,
-    S9 <: T: ClassTag,
-    S10 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag,
+      S8 <: T: ClassTag,
+      S9 <: T: ClassTag,
+      S10 <: T: ClassTag
   ](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7]),
-    case8: => (Prefix, BinarySyntax[S8]),
-    case9: => (Prefix, BinarySyntax[S9]),
-    case10: => (Prefix, BinarySyntax[S10])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7]),
+      case8: => (Prefix, BinarySyntax[S8]),
+      case9: => (Prefix, BinarySyntax[S9]),
+      case10: => (Prefix, BinarySyntax[S10])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -234,30 +234,30 @@ private[wasm] object BinarySyntax {
       (case10._1.asSyntax ~> case10._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag,
-    S8 <: T: ClassTag,
-    S9 <: T: ClassTag,
-    S10 <: T: ClassTag,
-    S11 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag,
+      S8 <: T: ClassTag,
+      S9 <: T: ClassTag,
+      S10 <: T: ClassTag,
+      S11 <: T: ClassTag
   ](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7]),
-    case8: => (Prefix, BinarySyntax[S8]),
-    case9: => (Prefix, BinarySyntax[S9]),
-    case10: => (Prefix, BinarySyntax[S10]),
-    case11: => (Prefix, BinarySyntax[S11])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7]),
+      case8: => (Prefix, BinarySyntax[S8]),
+      case9: => (Prefix, BinarySyntax[S9]),
+      case10: => (Prefix, BinarySyntax[S10]),
+      case11: => (Prefix, BinarySyntax[S11])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |
@@ -272,32 +272,32 @@ private[wasm] object BinarySyntax {
       (case11._1.asSyntax ~> case11._2).widenWith(SyntaxError.InvalidCase) ?? name
 
   def casesByPrefix[
-    T,
-    S1 <: T: ClassTag,
-    S2 <: T: ClassTag,
-    S3 <: T: ClassTag,
-    S4 <: T: ClassTag,
-    S5 <: T: ClassTag,
-    S6 <: T: ClassTag,
-    S7 <: T: ClassTag,
-    S8 <: T: ClassTag,
-    S9 <: T: ClassTag,
-    S10 <: T: ClassTag,
-    S11 <: T: ClassTag,
-    S12 <: T: ClassTag
+      T,
+      S1 <: T: ClassTag,
+      S2 <: T: ClassTag,
+      S3 <: T: ClassTag,
+      S4 <: T: ClassTag,
+      S5 <: T: ClassTag,
+      S6 <: T: ClassTag,
+      S7 <: T: ClassTag,
+      S8 <: T: ClassTag,
+      S9 <: T: ClassTag,
+      S10 <: T: ClassTag,
+      S11 <: T: ClassTag,
+      S12 <: T: ClassTag
   ](name: String)(
-    case1: => (Prefix, BinarySyntax[S1]),
-    case2: => (Prefix, BinarySyntax[S2]),
-    case3: => (Prefix, BinarySyntax[S3]),
-    case4: => (Prefix, BinarySyntax[S4]),
-    case5: => (Prefix, BinarySyntax[S5]),
-    case6: => (Prefix, BinarySyntax[S6]),
-    case7: => (Prefix, BinarySyntax[S7]),
-    case8: => (Prefix, BinarySyntax[S8]),
-    case9: => (Prefix, BinarySyntax[S9]),
-    case10: => (Prefix, BinarySyntax[S10]),
-    case11: => (Prefix, BinarySyntax[S11]),
-    case12: => (Prefix, BinarySyntax[S12])
+      case1: => (Prefix, BinarySyntax[S1]),
+      case2: => (Prefix, BinarySyntax[S2]),
+      case3: => (Prefix, BinarySyntax[S3]),
+      case4: => (Prefix, BinarySyntax[S4]),
+      case5: => (Prefix, BinarySyntax[S5]),
+      case6: => (Prefix, BinarySyntax[S6]),
+      case7: => (Prefix, BinarySyntax[S7]),
+      case8: => (Prefix, BinarySyntax[S8]),
+      case9: => (Prefix, BinarySyntax[S9]),
+      case10: => (Prefix, BinarySyntax[S10]),
+      case11: => (Prefix, BinarySyntax[S11]),
+      case12: => (Prefix, BinarySyntax[S12])
   ): BinarySyntax[T] =
     (case1._1.asSyntax ~> case1._2).widenWith(SyntaxError.InvalidCase) |
       (case2._1.asSyntax ~> case2._2).widenWith(SyntaxError.InvalidCase) |

@@ -7,10 +7,9 @@ import zio.wasm.internal.Graph
 /** Describes dependencies between different component model sections */
 object Dependencies {
 
-  /**
-   * Gets a map of sections indexed by their unified index (as their index type is section type specific) and returns
-   * the ordered list of these indexes.
-   */
+  /** Gets a map of sections indexed by their unified index (as their index type is section type specific) and returns
+    * the ordered list of these indexes.
+    */
   def topologicalSort(sections: Map[SectionReference, Section[ComponentIndexSpace]]): Option[Chunk[SectionReference]] =
     Graph(
       Chunk
@@ -23,8 +22,8 @@ object Dependencies {
     }
 
   private def dependenciesOfExternDesc(
-    idx: SectionReference,
-    externDesc: ExternDesc
+      idx: SectionReference,
+      externDesc: ExternDesc
   ): Chunk[Graph.Edge[SectionReference]] =
     externDesc match {
       case ExternDesc.Module(typeIdx)                        =>
@@ -44,9 +43,9 @@ object Dependencies {
     }
 
   private def dependenciesOfAlias(
-    level: Int,
-    idx: SectionReference,
-    alias: Alias
+      level: Int,
+      idx: SectionReference,
+      alias: Alias
   ): Chunk[Graph.Edge[SectionReference]] =
     alias match {
       case Alias.InstanceExport(_, instanceIdx, _)     =>
@@ -59,9 +58,9 @@ object Dependencies {
     }
 
   private def dependenciesOfComponentType(
-    level: Int,
-    idx: SectionReference,
-    ct: ComponentType
+      level: Int,
+      idx: SectionReference,
+      ct: ComponentType
   ): Chunk[Graph.Edge[SectionReference]] =
     ct match {
       case ComponentType.Defined(ComponentDefinedType.Record(fields))                            =>
@@ -108,12 +107,13 @@ object Dependencies {
       case ComponentType.Defined(ComponentDefinedType.Borrow(typeIdx))                           =>
         Chunk(Graph.Edge(SectionReference.ComponentType(typeIdx), idx))
       case ComponentType.Func(ComponentFuncType(params, result))                                 =>
-        params.flatMap {
-          case (_, ComponentValType.Defined(typeIdx)) =>
-            Chunk(Graph.Edge(SectionReference.ComponentType(typeIdx), idx))
-          case _                                      =>
-            Chunk.empty
-        }
+        params
+          .flatMap {
+            case (_, ComponentValType.Defined(typeIdx)) =>
+              Chunk(Graph.Edge(SectionReference.ComponentType(typeIdx), idx))
+            case _                                      =>
+              Chunk.empty
+          }
           .concat(result match {
             case ComponentFuncResult.Unnamed(ComponentValType.Defined(typeIdx)) =>
               Chunk(Graph.Edge(SectionReference.ComponentType(typeIdx), idx))
@@ -158,14 +158,14 @@ object Dependencies {
     }
 
   private def dependenciesOfComponentImport(
-    idx: SectionReference,
-    ci: ComponentImport
+      idx: SectionReference,
+      ci: ComponentImport
   ): Chunk[Graph.Edge[SectionReference]] =
     dependenciesOfExternDesc(idx, ci.desc)
 
   private def dependenciesOfComponentExport(
-    idx: SectionReference,
-    ce: ComponentExport
+      idx: SectionReference,
+      ce: ComponentExport
   ): Chunk[Graph.Edge[SectionReference]] =
     ce.desc.map(dependenciesOfExternDesc(idx, _)).getOrElse(Chunk.empty) :+
       Graph.Edge(externalKindAndIndexToSectionReference(ce.kind, ce.idx), idx)
@@ -187,8 +187,8 @@ object Dependencies {
     }
 
   private def dependenciesOfComponentInstance(
-    idx: SectionReference,
-    ci: ComponentInstance
+      idx: SectionReference,
+      ci: ComponentInstance
   ): Chunk[Graph.Edge[SectionReference]] =
     ci match {
       case ComponentInstance.Instantiate(componentIdx, args) =>
@@ -222,7 +222,7 @@ object Dependencies {
     }
 
   private def dependencies(
-    sections: Map[SectionReference, Section[ComponentIndexSpace]]
+      sections: Map[SectionReference, Section[ComponentIndexSpace]]
   ): Chunk[Graph.Edge[SectionReference]] =
     Chunk
       .fromIterable(sections)

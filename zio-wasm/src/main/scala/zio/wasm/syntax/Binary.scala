@@ -2331,8 +2331,8 @@ object Binary {
 
   private def toSections(module: Module): Either[SyntaxError, Chunk[RawSection]] = {
     def encodeGroup(
-      sectionType: SectionType[CoreIndexSpace],
-      sections: Chunk[Section[CoreIndexSpace]]
+        sectionType: SectionType[CoreIndexSpace],
+        sections: Chunk[Section[CoreIndexSpace]]
     ): Either[SyntaxError, RawSection] =
       sectionType match {
         case SectionType.CoreTypeSection      =>

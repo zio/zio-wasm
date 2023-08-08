@@ -42,9 +42,10 @@ object SectionReference {
     def fromPairs(pairs: Chunk[(SectionReference, SectionReference)]): Mapper =
       new Mapper {
         def map[S <: SectionReference: ClassTag](value: S): S =
-          pairs.collectFirst {
-            case ((from: S, to: S)) if from == value => to
-          }
+          pairs
+            .collectFirst {
+              case ((from: S, to: S)) if from == value => to
+            }
             .getOrElse(value)
       }
   }

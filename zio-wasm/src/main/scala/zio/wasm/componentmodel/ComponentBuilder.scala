@@ -11,8 +11,8 @@ type ComponentBuilder[A] = ZPure[String, ComponentBuilder.State, ComponentBuilde
 object ComponentBuilder {
 
   def addAlias(
-    alias: Alias,
-    insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+      alias: Alias,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): ComponentBuilder[SectionReference] =
     ZPure.get[State].flatMap {
       case State.Normal(_) =>
@@ -47,8 +47,8 @@ object ComponentBuilder {
     }
 
   def addComponent(
-    newComponent: Component,
-    insertionPoint: InsertionPoint = InsertionPoint.End
+      newComponent: Component,
+      insertionPoint: InsertionPoint = InsertionPoint.End
   ): ComponentBuilder[ComponentIdx] =
     ZPure.get[State].flatMap {
       case State.Normal(_)                                                  =>
@@ -68,8 +68,8 @@ object ComponentBuilder {
     }
 
   def addComponentImport(
-    componentImport: ComponentImport,
-    insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+      componentImport: ComponentImport,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): ComponentBuilder[SectionReference] =
     ZPure.get[State].flatMap {
       case State.Normal(_)                                                  =>
@@ -91,8 +91,8 @@ object ComponentBuilder {
     }
 
   def addComponentExport(
-    componentExport: ComponentExport,
-    insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+      componentExport: ComponentExport,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): ComponentBuilder[SectionReference] =
     ZPure.get[State].flatMap {
       case State.Normal(_)                                                  =>
@@ -114,8 +114,8 @@ object ComponentBuilder {
     }
 
   def addComponentType(
-    componentType: ComponentType,
-    insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+      componentType: ComponentType,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): ComponentBuilder[ComponentTypeIdx] =
     ZPure.get[State].flatMap {
       case State.Normal(_) =>
@@ -136,8 +136,8 @@ object ComponentBuilder {
     }
 
   def addComponentInstance(
-    instance: ComponentInstance,
-    insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
+      instance: ComponentInstance,
+      insertionPoint: InsertionPoint = InsertionPoint.LastOfGroup
   ): ComponentBuilder[InstanceIdx] =
     ZPure.get[State].flatMap {
       case State.Normal(_) =>
@@ -157,10 +157,9 @@ object ComponentBuilder {
           .as(idx)
     }
 
-  /**
-   * Captures addComponentType in the inner block and only add them in the end, reordering and reindexing them based on
-   * their dependencies.
-   */
+  /** Captures addComponentType in the inner block and only add them in the end, reordering and reindexing them based on
+    * their dependencies.
+    */
   def addManyComponentTypes[A](inner: ComponentBuilder[A]): ComponentBuilder[A] =
     ZPure.get[State].flatMap {
       case State.Normal(component)     =>
@@ -215,25 +214,29 @@ object ComponentBuilder {
   private def createMappingFromOrder(component: Component, order: Chunk[SectionReference]): SectionReference.Mapper =
     new SectionReference.Mapper {
       private lazy val fakeComponentTypeIdToRealId =
-        order.collect { case SectionReference.ComponentType(typeIdx) => typeIdx }
+        order
+          .collect { case SectionReference.ComponentType(typeIdx) => typeIdx }
           .zipWithIndexFrom(component.lastComponentTypeIdx.next.toInt)
           .toMap
           .map((ct, i) => (ct, ComponentTypeIdx.fromInt(i)))
 
       private lazy val fakeInstanceIdToRealId =
-        order.collect { case SectionReference.Instance(instanceIdx) => instanceIdx }
+        order
+          .collect { case SectionReference.Instance(instanceIdx) => instanceIdx }
           .zipWithIndexFrom(component.lastInstanceIdx.next.toInt)
           .toMap
           .map((ct, i) => (ct, InstanceIdx.fromInt(i)))
 
       private lazy val fakeComponentIdToRealId =
-        order.collect { case SectionReference.Component(componentIdx) => componentIdx }
+        order
+          .collect { case SectionReference.Component(componentIdx) => componentIdx }
           .zipWithIndexFrom(component.lastComponentIdx.next.toInt)
           .toMap
           .map((ct, i) => (ct, ComponentIdx.fromInt(i)))
 
       private lazy val fakeComponentFuncIdToRealId =
-        order.collect { case SectionReference.ComponentFunc(funcIdx) => funcIdx }
+        order
+          .collect { case SectionReference.ComponentFunc(funcIdx) => funcIdx }
           .zipWithIndexFrom(component.lastComponentFuncIdx.next.toInt)
           .toMap
           .map((ct, i) => (ct, ComponentFuncIdx.fromInt(i)))
@@ -343,14 +346,14 @@ object ComponentBuilder {
     }
 
   def replaceComponentType(
-    componentTypeIdx: ComponentTypeIdx,
-    newComponentType: ComponentType
+      componentTypeIdx: ComponentTypeIdx,
+      newComponentType: ComponentType
   ): ComponentBuilder[Unit] =
     ZPure.update(_.mapComponent(_.replaceComponentType(componentTypeIdx, newComponentType)))
 
   def replaceComponentType(
-    componentTypeIdx: ComponentTypeIdx,
-    alias: Alias
+      componentTypeIdx: ComponentTypeIdx,
+      alias: Alias
   ): ComponentBuilder[Unit] =
     ZPure.update(_.mapComponent(_.replaceComponentType(componentTypeIdx, alias)))
 
@@ -371,10 +374,10 @@ object ComponentBuilder {
   enum State {
     case Normal(component: Component)
     case Capturing(
-      component: Component,
-      firstFakeId: Int,
-      nextFakeId: Int,
-      newSections: Chunk[(SectionReference, Section[ComponentIndexSpace])]
+        component: Component,
+        firstFakeId: Int,
+        nextFakeId: Int,
+        newSections: Chunk[(SectionReference, Section[ComponentIndexSpace])]
     )
 
     def component: Component

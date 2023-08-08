@@ -9,10 +9,10 @@ import scala.collection.mutable
 object Example extends ZIOAppDefault {
 
   def wrapFunctionCall(
-    originalIdx: FuncIdx,
-    funcType: FuncType,
-    moduleName: Option[Name],
-    functionName: Option[Name]
+      originalIdx: FuncIdx,
+      funcType: FuncType,
+      moduleName: Option[Name],
+      functionName: Option[Name]
   ): Option[Expr] =
     if (moduleName.isDefined && functionName.isDefined) {
       // imported function
@@ -125,19 +125,20 @@ object Example extends ZIOAppDefault {
     )
 
     // Replacing call instructions
-    module.mapInstr {
-      case Instr.Call(funcIdx)   =>
-        Instr.Call(mapping.getOrElse(funcIdx, funcIdx))
-      case i: Instr.CallIndirect =>
-        indirectMapping.get(i) match {
-          case Some(funcIdx) =>
-            Instr.Call(funcIdx)
-          case None          =>
-            i
-        }
-      case i: Instr              =>
-        i
-    }
+    module
+      .mapInstr {
+        case Instr.Call(funcIdx)   =>
+          Instr.Call(mapping.getOrElse(funcIdx, funcIdx))
+        case i: Instr.CallIndirect =>
+          indirectMapping.get(i) match {
+            case Some(funcIdx) =>
+              Instr.Call(funcIdx)
+            case None          =>
+              i
+          }
+        case i: Instr              =>
+          i
+      }
       .addTypes(newTypes.result())
       .addFunctions(newFuncs.result())
       .addTable(Table(TableType(Limits(originalFuncCount, Some(originalFuncCount)), RefType.FuncRef)))

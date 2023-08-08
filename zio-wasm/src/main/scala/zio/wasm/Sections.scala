@@ -46,7 +46,7 @@ final case class Sections[IS <: IndexSpace](sections: Chunk[Section[IS]]) {
     Sections(sections.map(f))
 
   def mapSectionBySectionType(
-    sectionType: SectionType[IS]
+      sectionType: SectionType[IS]
   )(f: sectionType.Section => sectionType.Section): Sections[IS] =
     Sections(sections.map {
       case section if section.sectionType == sectionType => f(section.asInstanceOf[sectionType.Section])

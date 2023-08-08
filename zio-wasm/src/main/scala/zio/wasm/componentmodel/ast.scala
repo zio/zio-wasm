@@ -34,13 +34,13 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   lazy val instanceIndex      = sections.indexed(ComponentIndexSpace.Instance)
   lazy val componentTypeIndex = sections.indexed(ComponentIndexSpace.Type)
   lazy val coreFuncIndex      = sections.indexed(ComponentIndexSpace.CoreFunc)
-  lazy val funcIndex          = sections.indexed(ComponentIndexSpace.Func)
   lazy val componentIndex     = sections.indexed(ComponentIndexSpace.Component)
+  lazy val componentFuncIndex = sections.indexed(ComponentIndexSpace.Func)
   lazy val valueIndex         = sections.indexed(ComponentIndexSpace.Value)
   lazy val moduleIndex        = sections.indexed(ComponentIndexSpace.Module)
 
   lazy val lastComponentIdx: ComponentIdx         = ComponentIdx.fromInt(componentIndex.size - 1)
-  lazy val lastComponentFuncIdx: ComponentFuncIdx = ComponentFuncIdx.fromInt(funcIndex.size - 1)
+  lazy val lastComponentFuncIdx: ComponentFuncIdx = ComponentFuncIdx.fromInt(componentFuncIndex.size - 1)
   lazy val lastComponentTypeIdx: ComponentTypeIdx = ComponentTypeIdx.fromInt(componentTypeIndex.size - 1)
   lazy val lastInstanceIdx: InstanceIdx           = InstanceIdx.fromInt(instanceIndex.size - 1)
   lazy val lastModuleIdx: ModuleIdx               = ModuleIdx.fromInt(instanceIndex.size - 1)
@@ -174,14 +174,26 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   def getComponent(idx: ComponentIdx): Option[Component] =
     componentIndex.get(idx).asInstanceOf[Option[Component]]
 
+  def getComponentFunc(idx: ComponentFuncIdx): Option[Alias | Canon | ComponentImport | ComponentExport] =
+    componentFuncIndex.get(idx).asInstanceOf[Option[Alias | Canon | ComponentImport | ComponentExport]]
+
   def getCoreInstance(idx: CoreInstanceIdx): Option[Instance] =
     coreInstanceIndex.get(idx).asInstanceOf[Option[Instance]]
 
-  def getInstance(idx: InstanceIdx): Option[ComponentInstance] =
-    instanceIndex.get(idx).asInstanceOf[Option[ComponentInstance]]
+  def getInstance(idx: InstanceIdx): Option[ComponentInstance | Alias | ComponentImport | ComponentExport] =
+    instanceIndex.get(idx).asInstanceOf[Option[ComponentInstance | Alias | ComponentImport | ComponentExport]]
 
   def getComponentType(idx: ComponentTypeIdx): Option[ComponentType | ComponentImport | Alias] =
     componentTypeIndex.get(idx).asInstanceOf[Option[ComponentType | ComponentImport | Alias]]
+
+  def getFunc(idx: FuncIdx): Option[Canon | Alias] =
+    coreFuncIndex.get(idx).asInstanceOf[Option[Canon | Alias]]
+
+  def getModule(idx: ModuleIdx): Option[Module | Alias | ComponentImport | ComponentExport] =
+    moduleIndex.get(idx).asInstanceOf[Option[Module | Alias | ComponentImport | ComponentExport]]
+
+  def getValue(idx: ValueIdx): Option[Alias | ComponentImport | ComponentExport] =
+    valueIndex.get(idx).asInstanceOf[Option[Alias | ComponentImport | ComponentExport]]
 
   def mapAllAlias(f: Alias => Alias): Component =
     this.copy(
@@ -266,7 +278,8 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
     (coreInstanceIndex.map { case (k, v) => (v, SectionReference.CoreInstance(k)) } ++
       instanceIndex.map { case (k, v) => (v, SectionReference.Instance(k)) } ++
       componentTypeIndex.map { case (k, v) => (v, SectionReference.ComponentType(k)) } ++
-      funcIndex.map { case (k, v) => (v, SectionReference.ComponentFunc(k)) } ++
+      coreFuncIndex.map { case (k, v) => (v, SectionReference.CoreFunc(k)) } ++
+      componentFuncIndex.map { case (k, v) => (v, SectionReference.ComponentFunc(k)) } ++
       componentIndex.map { case (k, v) => (v, SectionReference.Component(k)) } ++
       valueIndex.map { case (k, v) => (v, SectionReference.Value(k)) } ++
       moduleIndex.map { case (k, v) => (v, SectionReference.Module(k)) })
@@ -455,17 +468,22 @@ final case class ComponentStart(funcIdx: ComponentFuncIdx, args: Chunk[ValueIdx]
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentStartSection
 }
 
-final case class ComponentImport(name: ExternName, desc: ExternDesc) extends Section[ComponentIndexSpace] {
+enum ComponentExternName {
+  case Kebab(name: Name)
+  case Interface(name: Name)
+
+  def name: Name
+}
+
+final case class ComponentImport(name: ComponentExternName, desc: ExternDesc) extends Section[ComponentIndexSpace] {
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentImportSection
 
   def mapSectionReference(f: SectionReference.Mapper): ComponentImport =
     this.copy(desc = desc.mapSectionReference(f))
 }
 
-final case class ExternName(name: Name, url: Url)
-
 final case class ComponentExport(
-    name: ExternName,
+    name: ComponentExternName,
     kind: ComponentExternalKind,
     idx: Int,
     desc: Option[ExternDesc]
@@ -646,7 +664,7 @@ enum InstanceTypeDeclaration {
   case Core(typ: CoreType)
   case Type(typ: ComponentType)
   case Alias(alias: zio.wasm.componentmodel.Alias)
-  case Export(name: ExternName, desc: ExternDesc)
+  case Export(name: ComponentExternName, desc: ExternDesc)
 
   def collectAliases(atLevel: Int): Chunk[(Int, zio.wasm.componentmodel.Alias)] =
     this match {
@@ -683,7 +701,7 @@ enum ComponentTypeDeclaration {
   case Type(typ: ComponentType)
   case Alias(alias: zio.wasm.componentmodel.Alias)
   case Import(imp: ComponentImport)
-  case Export(name: ExternName, desc: ExternDesc)
+  case Export(name: ComponentExternName, desc: ExternDesc)
 
   def collectAliases(atLevel: Int): Chunk[(Int, zio.wasm.componentmodel.Alias)] =
     this match {

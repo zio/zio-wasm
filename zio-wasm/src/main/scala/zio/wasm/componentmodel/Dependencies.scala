@@ -205,7 +205,7 @@ object Dependencies {
     }
 
   private def dependenciesOfInnerComponent(idx: SectionReference, c: Component): Chunk[Graph.Edge[SectionReference]] =
-    c.allOuterAliasesRelativeToRoot.map { case Alias.Outer(kind, AliasTarget(1, i)) =>
+    c.allOuterAliasesRelativeToRoot.collect { case Alias.Outer(kind, AliasTarget(1, i)) =>
       Graph.Edge(aliasToReference(kind, i), idx)
     }
 

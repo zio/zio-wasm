@@ -316,11 +316,14 @@ object Binary {
       name => name.toBytes
     ) ?? "name"
 
-  private[wasm] val externName: BinarySyntax[ExternName] =
-    (name ~ url).of[ExternName] ?? "externName"
+  private[wasm] val componentExternName: BinarySyntax[ComponentExternName] =
+    casesByPrefix("componentExternName")(
+      Prefix(0x00) -> name.of[ComponentExternName.Kebab],
+      Prefix(0x01) -> name.of[ComponentExternName.Interface]
+    )
 
   private[wasm] val componentExport: BinarySyntax[ComponentExport] =
-    (externName ~ componentExternalKind ~ u32 ~ optional(externDesc)).of[ComponentExport] ?? "componentExport"
+    (componentExternName ~ componentExternalKind ~ u32 ~ optional(externDesc)).of[ComponentExport] ?? "componentExport"
 
   private[wasm] val componentInstantiationArg: BinarySyntax[ComponentInstantiationArg] =
     (name ~ componentExternalKind ~ u32).of[ComponentInstantiationArg] ?? "componentInstantiationArg"
@@ -360,7 +363,7 @@ object Binary {
     (vec(name ~ componentValType) ~ componentFuncResult).of[ComponentFuncType] ?? "componentFuncType"
 
   private[wasm] val componentImport: BinarySyntax[ComponentImport] =
-    (externName ~ externDesc).of[ComponentImport] ?? "componentImport"
+    (componentExternName ~ externDesc).of[ComponentImport] ?? "componentImport"
 
   private[wasm] val componentTypeDeclaration: BinarySyntax[ComponentTypeDeclaration] =
     casesByPrefix("componentTypeDeclaration")(
@@ -368,7 +371,7 @@ object Binary {
       Prefix(0x01) -> componentType.of[ComponentTypeDeclaration.Type],
       Prefix(0x02) -> alias.of[ComponentTypeDeclaration.Alias],
       Prefix(0x03) -> componentImport.of[ComponentTypeDeclaration.Import],
-      Prefix(0x04) -> (externName ~ externDesc).of[ComponentTypeDeclaration.Export]
+      Prefix(0x04) -> (componentExternName ~ externDesc).of[ComponentTypeDeclaration.Export]
     )
 
   private[wasm] val instanceTypeDeclaration: BinarySyntax[InstanceTypeDeclaration] =
@@ -376,7 +379,7 @@ object Binary {
       Prefix(0x00) -> coreType.of[InstanceTypeDeclaration.Core],
       Prefix(0x01) -> componentType.of[InstanceTypeDeclaration.Type],
       Prefix(0x02) -> alias.of[InstanceTypeDeclaration.Alias],
-      Prefix(0x04) -> (externName ~ externDesc).of[InstanceTypeDeclaration.Export]
+      Prefix(0x04) -> (componentExternName ~ externDesc).of[InstanceTypeDeclaration.Export]
     )
 
   private[wasm] lazy val componentType: BinarySyntax[ComponentType] =
@@ -475,11 +478,17 @@ object Binary {
       }
   }
 
-  private val version =
-    specificByte_(0x0c) ~>
+  private[wasm] val version =
+    (anyByte <~
       specificByte_(0x00) ~>
       specificByte_(0x01) ~>
-      specificByte_(0x00)
+      specificByte_(0x00)).transformEither(
+      byte =>
+        if (byte == 0x0d) Right(())
+        else if (byte < 0x0d) Left(SyntaxError.OldComponentVersion(byte))
+        else Left(SyntaxError.NewComponentVersion(byte)),
+      _ => Right(0x0d)
+    )
 
   private def fromSections(sections: Chunk[RawSection]): Either[SyntaxError, Component] = {
     def loadSection(section: RawSection): Either[SyntaxError, Chunk[Section[ComponentIndexSpace]]] =

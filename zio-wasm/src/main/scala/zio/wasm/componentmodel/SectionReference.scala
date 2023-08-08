@@ -1,6 +1,6 @@
 package zio.wasm.componentmodel
 
-import zio.wasm.TypeIdx
+import zio.wasm.{FuncIdx, TypeIdx}
 import zio.Chunk
 
 import scala.reflect.ClassTag
@@ -16,6 +16,7 @@ enum SectionReference {
   case Instance(idx: InstanceIdx)
   case Value(idx: ValueIdx)
   case Start(idx: StartIdx)
+  case CoreFunc(idx: FuncIdx)
 
   def toInt: Int =
     this match {
@@ -28,6 +29,7 @@ enum SectionReference {
       case Instance(idx)      => idx.toInt
       case Value(idx)         => idx.toInt
       case Start(idx)         => idx.toInt
+      case CoreFunc(idx)      => idx.toInt
     }
 }
 

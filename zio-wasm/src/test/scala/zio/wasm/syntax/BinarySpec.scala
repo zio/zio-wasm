@@ -1,8 +1,10 @@
 package zio.wasm.syntax
 
 import zio.*
+import zio.parser.*
 import zio.test.*
 import zio.wasm.*
+import zio.wasm.internal.BinarySyntax
 
 object BinarySpec extends ZIOSpecDefault {
   override def spec: Spec[Any, Any] =
@@ -39,6 +41,7 @@ object BinarySpec extends ZIOSpecDefault {
               ZIO.fromEither(
                 Binary.u32.parseChunk(Chunk[Byte](0xff.toByte, 0xff.toByte, 0xff.toByte, 0xff.toByte, 0xf))
               )
+            r8 <- ZIO.fromEither(Binary.u32.parseChunk(Chunk[Byte](5)))
           } yield assertTrue(
             r1 == 0,
             r2 == 1,
@@ -46,7 +49,8 @@ object BinarySpec extends ZIOSpecDefault {
             r4 == 16256,
             r5 == 0x3b4,
             r6 == 0x40c,
-            r7 == 0xffffffff
+            r7 == 0xffffffff,
+            r8 == 5
           )
         },
         test("Unsigned 32bit LEB128 roundtrip") {
@@ -96,6 +100,21 @@ object BinarySpec extends ZIOSpecDefault {
               result <- ZIO.fromEither(Binary.i128.parseChunk(bytes))
             } yield assertTrue(result == value)
           }
+        }
+      ),
+      suite("F32")(
+        test("f32 example #1") {
+          val data1     = Chunk[Byte](0xca.toByte, 0x1b, 0x0e, 0x5a)
+          val data2     = Chunk[Byte](0xca.toByte, 0x1b, 0x0e, 0x5a, 0x01, 0x02, 0x03, 0x04)
+          val expected  = 1.00000003e16f
+          val result1   = Binary.f32.parseChunk(data1)
+          val result2   = (Binary.f32 ~ BinarySyntax.anyByte).parseChunk(data2)
+          val reencoded = Binary.f32.print(expected)
+          assertTrue(
+            result1 == Right(expected),
+            result2 == Right((expected, 0x01.toByte)),
+            reencoded == Right(data1)
+          )
         }
       ),
       suite("Vectors")(

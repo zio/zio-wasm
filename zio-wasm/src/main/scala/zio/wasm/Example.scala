@@ -212,7 +212,7 @@ object Example extends ZIOAppDefault {
       _      <- Files.writeBytes(Path("examples/wasm_game_of_life_bg_fnwrap.wasm"), bytes4)
     } yield ()
 
-    /*
+  /*
     NOTES:
       To wrap a Call we need to inject a function which gets exactly the same parameters as the wrapped one,
       then loads all parameters from local to stack, and calls the original function.
@@ -228,5 +228,5 @@ object Example extends ZIOAppDefault {
       We map that to the wrapped function index generated for direct calls, and set this function reference in
       a new, fresh table (added by the transformation).
       Then we call indirectly using this new table.
-     */
+   */
 }

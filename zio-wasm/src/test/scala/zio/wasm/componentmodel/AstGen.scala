@@ -96,11 +96,11 @@ object AstGen {
       ref <- instantiationArgRef
     } yield InstantiationArg(n, ref)
 
-  val externName: Gen[Any, ExternName] =
-    for {
-      n <- WasmAstGen.name
-      u <- WasmAstGen.url
-    } yield ExternName(n, u)
+  val componentExternName: Gen[Any, ComponentExternName] =
+    Gen.oneOf(
+      WasmAstGen.name.map(ComponentExternName.Kebab.apply),
+      WasmAstGen.name.map(ComponentExternName.Interface.apply)
+    )
 
   val primitiveValType: Gen[Any, PrimitiveValueType] =
     Gen.oneOf(
@@ -143,7 +143,7 @@ object AstGen {
 
   val componentExport: Gen[Any, ComponentExport] =
     for {
-      externName <- externName
+      externName <- componentExternName
       kind       <- componentExternalKind
       idx        <- Gen.int
       desc       <- Gen.option(externDesc)
@@ -210,7 +210,7 @@ object AstGen {
     } yield ComponentFuncType(params, result)
 
   val componentImport: Gen[Any, ComponentImport] =
-    (externName <*> externDesc).map(ComponentImport.apply)
+    (componentExternName <*> externDesc).map(ComponentImport.apply)
 
   val componentTypeDeclaration: Gen[Any, ComponentTypeDeclaration] =
     Gen.oneOf(
@@ -218,7 +218,7 @@ object AstGen {
       Gen.suspend(componentType.map(ComponentTypeDeclaration.Type.apply)),
       alias.map(ComponentTypeDeclaration.Alias.apply),
       componentImport.map(ComponentTypeDeclaration.Import.apply),
-      (externName <*> externDesc).map(ComponentTypeDeclaration.Export.apply)
+      (componentExternName <*> externDesc).map(ComponentTypeDeclaration.Export.apply)
     )
 
   val instanceTypeDeclaration: Gen[Any, InstanceTypeDeclaration] =
@@ -226,7 +226,7 @@ object AstGen {
       coreType.map(InstanceTypeDeclaration.Core.apply),
       Gen.suspend(componentType.map(InstanceTypeDeclaration.Type.apply)),
       alias.map(InstanceTypeDeclaration.Alias.apply),
-      (externName <*> externDesc).map(InstanceTypeDeclaration.Export.apply)
+      (componentExternName <*> externDesc).map(InstanceTypeDeclaration.Export.apply)
     )
 
   lazy val componentType: Gen[Any, ComponentType] =

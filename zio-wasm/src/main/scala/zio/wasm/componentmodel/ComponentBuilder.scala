@@ -234,9 +234,17 @@ object ComponentBuilder {
           .toMap
           .map((ct, i) => (ct, ComponentIdx.fromInt(i)))
 
+      private lazy val fakeComponentFuncIdToRealId =
+        order
+          .collect { case SectionReference.ComponentFunc(funcIdx) => funcIdx }
+          .zipWithIndexFrom(component.lastComponentFuncIdx.next.toInt)
+          .toMap
+          .map((ct, i) => (ct, ComponentFuncIdx.fromInt(i)))
+
       println("fakeComponentTypeIdToRealId: " + fakeComponentTypeIdToRealId)
       println("fakeInstanceIdToRealId: " + fakeInstanceIdToRealId)
       println("fakeComponentIdToRealId: " + fakeComponentIdToRealId)
+      println("fakeComponentFuncIdToRealId: " + fakeComponentFuncIdToRealId)
 
       override def map[S <: SectionReference: ClassTag](value: S): S =
         value match {
@@ -246,6 +254,8 @@ object ComponentBuilder {
             SectionReference.Instance(fakeInstanceIdToRealId.getOrElse(instanceIdx, instanceIdx)).asInstanceOf[S]
           case SectionReference.Component(componentIdx) =>
             SectionReference.Component(fakeComponentIdToRealId.getOrElse(componentIdx, componentIdx)).asInstanceOf[S]
+          case SectionReference.ComponentFunc(funcIdx)  =>
+            SectionReference.ComponentFunc(fakeComponentFuncIdToRealId.getOrElse(funcIdx, funcIdx)).asInstanceOf[S]
           case other: S                                 =>
             other // TODO support all
         }

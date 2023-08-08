@@ -5,8 +5,6 @@ import zio.wasm.componentmodel.{ComponentIndexSpace, ComponentSectionType}
 
 import java.nio.charset.StandardCharsets
 
-// TODO: getters by typed indices
-
 /** WebAssembly programs are organized into modules, which are the unit of deployment, loading, and compilation. A
   * module collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports
   * and exports and provide initialization in the form of data and element segments, or a start function.
@@ -1110,6 +1108,7 @@ object Name {
   def fromBytes(bytes: Chunk[Byte]): Name = new String(bytes.toArray, StandardCharsets.UTF_8)
 
   extension (name: Name) {
+    def asString: String     = name
     def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
   }
 }

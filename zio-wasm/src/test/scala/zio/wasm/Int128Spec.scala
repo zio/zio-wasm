@@ -159,10 +159,10 @@ object Int128Spec extends ZIOSpecDefault {
     )
 
   private def binaryOp(
-      bin1: String,
-      bin2: String,
-      expected: String,
-      op: (Int128, Int128) => Int128
+    bin1: String,
+    bin2: String,
+    expected: String,
+    op: (Int128, Int128) => Int128
   ) = {
     val bin1f     = bin1.filterNot(_.isWhitespace)
     val bin2f     = bin2.filterNot(_.isWhitespace)
@@ -187,10 +187,10 @@ object Int128Spec extends ZIOSpecDefault {
   }
 
   private def binaryNOp(
-      bin1: String,
-      n: Int,
-      expected: String,
-      op: (Int128, Int) => Int128
+    bin1: String,
+    n: Int,
+    expected: String,
+    op: (Int128, Int) => Int128
   ) = {
     val bin1f     = bin1.filterNot(_.isWhitespace)
     val expectedf = expected.filterNot(_.isWhitespace)

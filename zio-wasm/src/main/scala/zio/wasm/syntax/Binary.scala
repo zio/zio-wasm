@@ -254,17 +254,41 @@ object Binary {
   private[wasm] val u32: Syntax[SyntaxError, Byte, Byte, Int]   = readUnsignedLEB128Int <=> writeUnsignedLEB128Int
   private[wasm] val i32: Syntax[SyntaxError, Byte, Byte, Int]   = readSignedLEB128Int <=> writeSignedLEB128Int
   private[wasm] val f32: Syntax[SyntaxError, Byte, Byte, Float] =
-    u32.transform(
-      (n: Int) => java.lang.Float.intBitsToFloat(n),
-      (f: Float) => java.lang.Float.floatToIntBits(f)
+    (anyByte ~ anyByte ~ anyByte ~ anyByte).transform(
+      { case (b0, b1, b2, b3) =>
+        java.lang.Float.intBitsToFloat(
+          ((b0.toLong & 0xff) | ((b1.toLong & 0xff) << 8) | ((b2.toLong & 0xff) << 16) | ((b3.toLong & 0xff) << 24)).toInt
+        )
+      },
+      { (f: Float) =>
+        val n = java.lang.Float.floatToIntBits(f)
+        ((n & 0xff).toByte, ((n >> 8) & 0xff).toByte, ((n >> 16) & 0xff).toByte, ((n >> 24) & 0xff).toByte)
+      }
     )
 
   private[wasm] val u64: Syntax[SyntaxError, Byte, Byte, Long]   = readUnsignedLEB128Long <=> writeUnsignedLEB128Long
   private[wasm] val i64: Syntax[SyntaxError, Byte, Byte, Long]   = readSignedLEB128Long <=> writeSignedLEB128Long
   private[wasm] val f64: Syntax[SyntaxError, Byte, Byte, Double] =
-    u64.transform(
-      (n: Long) => java.lang.Double.longBitsToDouble(n),
-      (f: Double) => java.lang.Double.doubleToLongBits(f)
+    (anyByte ~ anyByte ~ anyByte ~ anyByte ~ anyByte ~ anyByte ~ anyByte ~ anyByte).transform(
+      { case (b0, b1, b2, b3, b4, b5, b6, b7) =>
+        java.lang.Double.longBitsToDouble(
+          ((b0.toLong & 0xff) | ((b1.toLong & 0xff) << 8) | ((b2.toLong & 0xff) << 16) | ((b3.toLong & 0xff) << 24) |
+            ((b4.toLong & 0xff) << 32) | ((b5.toLong & 0xff) << 40) | ((b6.toLong & 0xff) << 48) | ((b7.toLong & 0xff) << 56))
+        )
+      },
+      { (f: Double) =>
+        val n = java.lang.Double.doubleToLongBits(f)
+        (
+          (n & 0xff).toByte,
+          ((n >> 8) & 0xff).toByte,
+          ((n >> 16) & 0xff).toByte,
+          ((n >> 24) & 0xff).toByte,
+          ((n >> 32) & 0xff).toByte,
+          ((n >> 40) & 0xff).toByte,
+          ((n >> 48) & 0xff).toByte,
+          ((n >> 56) & 0xff).toByte
+        )
+      }
     )
 
   private[wasm] val u128: Syntax[SyntaxError, Byte, Byte, Int128] = readUnsignedLEB128i128 <=> writeUnsignedLEB128i128
@@ -299,11 +323,11 @@ object Binary {
   private[wasm] val numType: BinarySyntax[NumType] =
     anyByte.transformEither(
       {
-        case 0x7f => Right(NumType.I32)
-        case 0x7e => Right(NumType.I64)
-        case 0x7d => Right(NumType.F32)
-        case 0x7c => Right(NumType.F64)
-        case _    => Left(SyntaxError.InvalidNumType)
+        case 0x7f        => Right(NumType.I32)
+        case 0x7e        => Right(NumType.I64)
+        case 0x7d        => Right(NumType.F32)
+        case 0x7c        => Right(NumType.F64)
+        case other: Byte => Left(SyntaxError.InvalidNumType(other))
       },
       {
         case NumType.I32 => Right(0x7f)
@@ -1985,11 +2009,12 @@ object Binary {
   private[wasm] final case class RawSection(id: SectionId, size: Int, rawContents: Chunk[Byte]) {
     def to[T](syntax: BinarySyntax[T]): Either[SyntaxError, T] =
 //      println(s"Parsing section of type $id, length $size\n${rawContents.map(_.toInt.toHexString).mkString(" ")}")
+//      println(s"Parsing section of type $id, length $size\n")
       (syntax)
         .parseChunk(rawContents)
         .left
         .map { err =>
-          println(s" => $err"); SyntaxError.InnerParserError(err)
+          SyntaxError.InnerParserError(err)
         }
         .map { v =>
 //          println(s" => $v")
@@ -2284,29 +2309,30 @@ object Binary {
   private def fromSections(sections: Chunk[RawSection]): Either[SyntaxError, Module] = {
     def loadSection(section: RawSection): Either[SyntaxError, Chunk[Section[CoreIndexSpace]]] =
       section.id match {
-        case RawSection.`type`   => section.to(typeSection)
-        case RawSection.`import` => section.to(importSection)
-        case RawSection.function => section.to(functionSection)
-        case RawSection.code     => section.to(codeSection)
-        case RawSection.table    => section.to(tableSection)
-        case RawSection.memory   => section.to(memorySection)
-        case RawSection.global   => section.to(globalSection)
-        case RawSection.element  => section.to(elemSection)
-        case RawSection.data     => section.to(dataSection)
-        case RawSection.start    => section.to(startSection).map(Chunk.single)
-        case RawSection.`export` => section.to(exportSection)
-        case _                   => section.to(name ~ anyBytes).map { case (n, bs) => Chunk(Custom(n, bs)) }
+        case RawSection.`type`    => section.to(typeSection)
+        case RawSection.`import`  => section.to(importSection)
+        case RawSection.function  => section.to(functionSection)
+        case RawSection.code      => section.to(codeSection)
+        case RawSection.table     => section.to(tableSection)
+        case RawSection.memory    => section.to(memorySection)
+        case RawSection.global    => section.to(globalSection)
+        case RawSection.element   => section.to(elemSection)
+        case RawSection.data      => section.to(dataSection)
+        case RawSection.start     => section.to(startSection).map(Chunk.single)
+        case RawSection.`export`  => section.to(exportSection)
+        case RawSection.dataCount => Right(Chunk.empty) // skipping
+        case _                    => section.to(name ~ anyBytes).map { case (n, bs) => Chunk(Custom(n, bs)) }
       }
 
     sections.forEach(loadSection).map { sections =>
-      Module(Sections.fromGrouped(sections))
+      Module(Sections.fromGrouped(sections.filter(_.nonEmpty)))
     }
   }
 
   private def toSections(module: Module): Either[SyntaxError, Chunk[RawSection]] = {
     def encodeGroup(
-        sectionType: SectionType[CoreIndexSpace],
-        sections: Chunk[Section[CoreIndexSpace]]
+      sectionType: SectionType[CoreIndexSpace],
+      sections: Chunk[Section[CoreIndexSpace]]
     ): Either[SyntaxError, RawSection] =
       sectionType match {
         case SectionType.CoreTypeSection      =>

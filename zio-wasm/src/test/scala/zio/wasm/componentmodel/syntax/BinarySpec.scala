@@ -4,7 +4,14 @@ import zio.{Chunk, ZIO}
 import zio.parser.*
 import zio.test.{Spec, TestAspect, ZIOSpecDefault, assertCompletes, assertTrue, check}
 import zio.wasm.{Name, Sections, Url}
-import zio.wasm.componentmodel.{AstGen, Component, ComponentExport, ComponentExternalKind, ExternName, Instance}
+import zio.wasm.componentmodel.{
+  AstGen,
+  Component,
+  ComponentExport,
+  ComponentExternalKind,
+  ComponentExternName,
+  Instance
+}
 import zio.wasm.syntax.BinarySpec.suite
 import zio.wasm.syntax.Binary as WasmBinary
 
@@ -202,9 +209,9 @@ object BinarySpec extends ZIOSpecDefault {
             0x1,                                                                          // InstanceTypeDeclaration.Type #0
             0x79,                                                                         // U32
             0x4,                                                                          // InstanceTypeDeclaration.Export #1
+            0x0,                                                                          // kebab
             0xc,                                                                          // name length (12)
             0x69, 0x6e, 0x70, 0x75, 0x74, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d,       // "input-stream"
-            0x0,                                                                          // url length (0)
             0x3,                                                                          // ComponentExternalKind.Type
             0x0,                                                                          // TypeBounds.Eq
             0x0,                                                                          // type idx
@@ -217,18 +224,18 @@ object BinarySpec extends ZIOSpecDefault {
             0x1,                                                                          // ComponentFuncResult.Named
             0x0,                                                                          // result count
             0x4,                                                                          // InstanceTypeDeclaration.Export #3
+            0x0,                                                                          // kebab
             0x11,                                                                         // name length (17)
             0x64, 0x72, 0x6f, 0x70, 0x2d, 0x69, 0x6e, 0x70, 0x75, 0x74, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61,
             0x6d,                                                                         // "drop-input-stream"
-            0x0,                                                                          // url length
             0x1,                                                                          // ComponentExternalKind.Func
             0x2,                                                                          // componentFuncIdx
             0x1,                                                                          // InstanceTypeDeclaration.Type #4
             0x79,                                                                         // U32
             0x4,                                                                          // InstanceTypeDeclaration.Export #5
+            0x0,                                                                          // kebab
             0xd,                                                                          // name length (13)
             0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, // "output-stream"
-            0x0,                                                                          // url length
             0x3,                                                                          // ComponentExternalKind.Type
             0x0,                                                                          // TypeBounds.Eq
             0x3,                                                                          // typeIdx
@@ -239,9 +246,9 @@ object BinarySpec extends ZIOSpecDefault {
             0x72,                                                                         // record
             0x0,                                                                          // field count
             0x4,                                                                          // InstanceTypeDeclaration.Export #8
+            0x0,                                                                          // kebab
             0xc,                                                                          // name length (12)
             0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x2d, 0x65, 0x72, 0x72, 0x6f, 0x72,       // "stream-error"
-            0x0,                                                                          // url length
             0x3,                                                                          // ComponentExternalKind.Type
             0x0,                                                                          // TypeBounds.Eq
             0x6,                                                                          // typeIdx
@@ -249,10 +256,10 @@ object BinarySpec extends ZIOSpecDefault {
             0x6a,                                                                         // result
             0x1,                                                                          // Some
             0x77,                                                                         // U64
-            0x1, 0x7, 0x1, 0x40, 0x2, 0x4, 0x74, 0x68, 0x69, 0x73, 0x4, 0x3, 0x62, 0x75, 0x66, 0x5, 0x0, 0x8, 0x4, 0x5,
-            0x77, 0x72, 0x69, 0x74, 0x65, 0x0, 0x1, 0x9, 0x1, 0x40, 0x1, 0x4, 0x74, 0x68, 0x69, 0x73, 0x4, 0x1, 0x0,
-            0x4, 0x12, 0x64, 0x72, 0x6f, 0x70, 0x2d, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2d, 0x73, 0x74, 0x72, 0x65,
-            0x61, 0x6d, 0x0, 0x1, 0xa)
+            0x1, 0x7, 0x1, 0x40, 0x2, 0x4, 0x74, 0x68, 0x69, 0x73, 0x4, 0x3, 0x62, 0x75, 0x66, 0x5, 0x0, 0x8, 0x4, 0x0,
+            0x5, 0x77, 0x72, 0x69, 0x74, 0x65, 0x1, 0x9, 0x1, 0x40, 0x1, 0x4, 0x74, 0x68, 0x69, 0x73, 0x4, 0x1, 0x0,
+            0x4, 0x0, 0x12, 0x64, 0x72, 0x6f, 0x70, 0x2d, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x2d, 0x73, 0x74, 0x72,
+            0x65, 0x61, 0x6d, 0x1, 0xa)
 
         val result = Binary.componentType.parseChunk(bytes)
         assertTrue(result.isRight)
@@ -263,7 +270,7 @@ object BinarySpec extends ZIOSpecDefault {
             Chunk(
               Chunk(
                 ComponentExport(
-                  ExternName(Name.fromString("0"), Url.fromString("0")),
+                  ComponentExternName.Kebab(Name.fromString("0")),
                   ComponentExternalKind.Module,
                   0,
                   None

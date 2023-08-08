@@ -20,7 +20,7 @@ object BuildHelper {
     val list = yaml.get("jobs").get("test").get("strategy").get("matrix").get("scala").asScala
     list.map(v => (v.split('.').take(2).mkString("."), v)).toMap
   }
-  val ScalaDotty: String                    = versions("3.2")
+  val ScalaDotty: String                    = versions("3.3")
 
   val SilencerVersion = "1.7.12"
 

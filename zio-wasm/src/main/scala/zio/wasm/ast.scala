@@ -5,12 +5,11 @@ import zio.wasm.componentmodel.{ComponentIndexSpace, ComponentSectionType}
 
 import java.nio.charset.StandardCharsets
 
-// TODO: getters by typed indices
-
-/** WebAssembly programs are organized into modules, which are the unit of deployment, loading, and compilation. A
-  * module collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports
-  * and exports and provide initialization in the form of data and element segments, or a start function.
-  */
+/**
+ * WebAssembly programs are organized into modules, which are the unit of deployment, loading, and compilation. A module
+ * collects definitions for types, functions, tables, memories, and globals. In addition, it can declare imports and
+ * exports and provide initialization in the form of data and element segments, or a start function.
+ */
 final case class Module(sections: Sections[CoreIndexSpace]) extends Section[ComponentIndexSpace] {
   override def sectionType: SectionType[ComponentIndexSpace] = ComponentSectionType.ComponentModuleSection
 
@@ -152,15 +151,11 @@ final case class Module(sections: Sections[CoreIndexSpace]) extends Section[Comp
   // TODO: addImport is not straightforward because it shares index space with functions. need to investigate if we can have multiple import groups
 
   lazy val importedFunctions: Map[FuncIdx, (Name, Name, FuncType)] =
-    imports
-      .collect { case Import(module, name, ImportDesc.Func(funcTypeIdx)) =>
-        (module, name, types(funcTypeIdx.toInt))
-      }
-      .zipWithIndex
-      .map { (desc, idx) =>
-        (FuncIdx.fromInt(idx), desc)
-      }
-      .toMap
+    imports.collect { case Import(module, name, ImportDesc.Func(funcTypeIdx)) =>
+      (module, name, types(funcTypeIdx.toInt))
+    }.zipWithIndex.map { (desc, idx) =>
+      (FuncIdx.fromInt(idx), desc)
+    }.toMap
 
   lazy val firstLocalFunctionIndex: FuncIdx =
     importedFunctions.lastOption.map(_._1.next).getOrElse(FuncIdx.fromInt(0))
@@ -316,18 +311,19 @@ object CustomIdx {
 //
 // All function types used in a module must be defined in this component. They are referenced by type indices.
 
-/** Number types classify numeric values.
-  *
-  * The types i32 and i64 classify 32 and 64 bit integers, respectively. Integers are not inherently signed or unsigned,
-  * their interpretation is determined by individual operations.
-  *
-  * The types f32 and f64 classify 32 and 64 bit floating-point data, respectively. They correspond to the respective
-  * binary floating-point representations, also known as single and double precision, as defined by the IEEE 754
-  * standard (Section 3.3).
-  *
-  * Number types are transparent, meaning that their bit patterns can be observed. Values of number type can be stored
-  * in memories.
-  */
+/**
+ * Number types classify numeric values.
+ *
+ * The types i32 and i64 classify 32 and 64 bit integers, respectively. Integers are not inherently signed or unsigned,
+ * their interpretation is determined by individual operations.
+ *
+ * The types f32 and f64 classify 32 and 64 bit floating-point data, respectively. They correspond to the respective
+ * binary floating-point representations, also known as single and double precision, as defined by the IEEE 754 standard
+ * (Section 3.3).
+ *
+ * Number types are transparent, meaning that their bit patterns can be observed. Values of number type can be stored in
+ * memories.
+ */
 enum NumType {
   case I32
   case I64
@@ -335,70 +331,78 @@ enum NumType {
   case F64
 }
 
-/** Vector types classify vectors of numeric values processed by vector instructions (also known as SIMD instructions,
-  * single instruction multiple data).
-  *
-  * The type v128 corresponds to a 128 bit vector of packed integer or floating-point data. The packed data can be
-  * interpreted as signed or unsigned integers, single or double precision floating-point values, or a single 128 bit
-  * type. The interpretation is determined by individual operations.
-  *
-  * Vector types, like number types are transparent, meaning that their bit patterns can be observed. Values of vector
-  * type can be stored in memories.
-  */
+/**
+ * Vector types classify vectors of numeric values processed by vector instructions (also known as SIMD instructions,
+ * single instruction multiple data).
+ *
+ * The type v128 corresponds to a 128 bit vector of packed integer or floating-point data. The packed data can be
+ * interpreted as signed or unsigned integers, single or double precision floating-point values, or a single 128 bit
+ * type. The interpretation is determined by individual operations.
+ *
+ * Vector types, like number types are transparent, meaning that their bit patterns can be observed. Values of vector
+ * type can be stored in memories.
+ */
 enum VecType {
   case V128
 }
 
-/** Reference types classify first-class references to objects in the runtime store.
-  *
-  * The type funcref denotes the infinite union of all references to functions, regardless of their function types.
-  *
-  * The type externref denotes the infinite union of all references to objects owned by the embedder and that can be
-  * passed into WebAssembly under this type.
-  *
-  * Reference types are opaque, meaning that neither their size nor their bit pattern can be observed. Values of
-  * reference type can be stored in tables.
-  */
+/**
+ * Reference types classify first-class references to objects in the runtime store.
+ *
+ * The type funcref denotes the infinite union of all references to functions, regardless of their function types.
+ *
+ * The type externref denotes the infinite union of all references to objects owned by the embedder and that can be
+ * passed into WebAssembly under this type.
+ *
+ * Reference types are opaque, meaning that neither their size nor their bit pattern can be observed. Values of
+ * reference type can be stored in tables.
+ */
 enum RefType {
   case FuncRef
   case ExternRef
 }
 
-/** Value types classify the individual values that WebAssembly code can compute with and the values that a variable
-  * accepts. They are either number types, vector types, or reference types.
-  */
+/**
+ * Value types classify the individual values that WebAssembly code can compute with and the values that a variable
+ * accepts. They are either number types, vector types, or reference types.
+ */
 type ValType = NumType | VecType | RefType
 
-/** Result types classify the result of executing instructions or functions, which is a sequence of values, written with
-  * brackets.
-  */
+/**
+ * Result types classify the result of executing instructions or functions, which is a sequence of values, written with
+ * brackets.
+ */
 final case class ResultType(values: Chunk[ValType])
 
-/** Function types classify the signature of functions, mapping a vector of parameters to a vector of results. They are
-  * also used to classify the inputs and outputs of instructions.
-  */
+/**
+ * Function types classify the signature of functions, mapping a vector of parameters to a vector of results. They are
+ * also used to classify the inputs and outputs of instructions.
+ */
 final case class FuncType(input: ResultType, output: ResultType) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreTypeSection
 }
 
-/** Limits classify the size range of resizeable storage associated with memory types and table types.
-  *
-  * If no maximum is given, the respective storage can grow to any size.
-  */
+/**
+ * Limits classify the size range of resizeable storage associated with memory types and table types.
+ *
+ * If no maximum is given, the respective storage can grow to any size.
+ */
 final case class Limits(min: Int, max: Option[Int])
 
-/** Memory types classify linear memories and their size range.
-  *
-  * The limits constrain the minimum and optionally the maximum size of a memory. The limits are given in units of page
-  * size.
-  */
+/**
+ * Memory types classify linear memories and their size range.
+ *
+ * The limits constrain the minimum and optionally the maximum size of a memory. The limits are given in units of page
+ * size.
+ */
 final case class MemType(limits: Limits)
 
-/** Table types classify tables over elements of reference type within a size range.
-  *
-  * Like memories, tables are constrained by limits for their minimum and optionally maximum size. The limits are given
-  * in numbers of entries.
-  */
+/**
+ * Table types classify tables over elements of reference type within a size range.
+ *
+ * Like memories, tables are constrained by limits for their minimum and optionally maximum size. The limits are given
+ * in numbers of entries.
+ */
 final case class TableType(limits: Limits, elements: RefType)
 
 enum Mut {
@@ -406,12 +410,14 @@ enum Mut {
   case Var
 }
 
-/** Global types classify global variables, which hold a value and can either be mutable or immutable.
-  */
+/**
+ * Global types classify global variables, which hold a value and can either be mutable or immutable.
+ */
 final case class GlobalType(mut: Mut, valType: ValType)
 
-/** External types classify imports and external values with their respective types.
-  */
+/**
+ * External types classify imports and external values with their respective types.
+ */
 enum ExternType {
   case Func(funcType: FuncType)
   case Table(tableType: TableType)
@@ -435,22 +441,23 @@ final case class FuncCode(locals: Chunk[ValType], body: Expr) extends Section[Co
     this.copy(body = body.mapInstr(f))
 }
 
-/** The funcs component of a module defines a vector of functions with the following structure.
-  *
-  * Functions are referenced through function indices, starting with the smallest index not referencing a function
-  * import.
-  *
-  * @param typ
-  *   The type of a function declares its signature by reference to a type defined in the module. The parameters of the
-  *   function are referenced through 0-based local indices in the function’s body; they are mutable.
-  * @param locals
-  *   The locals declare a vector of mutable local variables and their types. These variables are referenced through
-  *   local indices in the function’s body. The index of the first local is the smallest index not referencing a
-  *   parameter.
-  * @param body
-  *   The body is an instruction sequence that upon termination must produce a stack matching the function type’s result
-  *   type.
-  */
+/**
+ * The funcs component of a module defines a vector of functions with the following structure.
+ *
+ * Functions are referenced through function indices, starting with the smallest index not referencing a function
+ * import.
+ *
+ * @param typ
+ *   The type of a function declares its signature by reference to a type defined in the module. The parameters of the
+ *   function are referenced through 0-based local indices in the function’s body; they are mutable.
+ * @param locals
+ *   The locals declare a vector of mutable local variables and their types. These variables are referenced through
+ *   local indices in the function’s body. The index of the first local is the smallest index not referencing a
+ *   parameter.
+ * @param body
+ *   The body is an instruction sequence that upon termination must produce a stack matching the function type’s result
+ *   type.
+ */
 final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr) {
 
   def foldLeftRec[S](initial: S)(f: (S, Instr) => S): S =
@@ -462,47 +469,50 @@ final case class Func(typ: TypeIdx, locals: Chunk[ValType], body: Expr) {
 
 // Tables
 
-/** The tables component of a module defines a vector of tables described by their table type:
-  *
-  * A table is a vector of opaque values of a particular reference type. The size in the limits of the table type
-  * specifies the initial size of that table, while its max, if present, restricts the size to which it can grow later.
-  *
-  * Tables can be initialized through element segments.
-  *
-  * Tables are referenced through table indices, starting with the smallest index not referencing a table import. Most
-  * constructs implicitly reference table index 0.
-  */
+/**
+ * The tables component of a module defines a vector of tables described by their table type:
+ *
+ * A table is a vector of opaque values of a particular reference type. The size in the limits of the table type
+ * specifies the initial size of that table, while its max, if present, restricts the size to which it can grow later.
+ *
+ * Tables can be initialized through element segments.
+ *
+ * Tables are referenced through table indices, starting with the smallest index not referencing a table import. Most
+ * constructs implicitly reference table index 0.
+ */
 final case class Table(tableType: TableType) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreTableSection
 }
 
 // Memories
 
-/** The mems component of a module defines a vector of linear memories (or memories for short) as described by their
-  * memory type:
-  *
-  * A memory is a vector of raw uninterpreted bytes. The size in the limits of the memory type specifies the initial
-  * size of that memory, while its max, if present, restricts the size to which it can grow later. Both are in units of
-  * page size.
-  *
-  * Memories can be initialized through data segments.
-  *
-  * Memories are referenced through memory indices, starting with the smallest index not referencing a memory import.
-  * Most constructs implicitly reference memory index 0.
-  */
+/**
+ * The mems component of a module defines a vector of linear memories (or memories for short) as described by their
+ * memory type:
+ *
+ * A memory is a vector of raw uninterpreted bytes. The size in the limits of the memory type specifies the initial size
+ * of that memory, while its max, if present, restricts the size to which it can grow later. Both are in units of page
+ * size.
+ *
+ * Memories can be initialized through data segments.
+ *
+ * Memories are referenced through memory indices, starting with the smallest index not referencing a memory import.
+ * Most constructs implicitly reference memory index 0.
+ */
 final case class Mem(memType: MemType) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreMemSection
 }
 
 // Globals
 
-/** The globals component of a module defines a vector of global variables (or globals for short):
-  *
-  * Each global stores a single value of the given global type. Its type also specifies whether a global is immutable or
-  * mutable. Moreover, each global is initialized with an value given by a constant initializer expression.
-  *
-  * Globals are referenced through global indices, starting with the smallest index not referencing a global import.
-  */
+/**
+ * The globals component of a module defines a vector of global variables (or globals for short):
+ *
+ * Each global stores a single value of the given global type. Its type also specifies whether a global is immutable or
+ * mutable. Moreover, each global is initialized with an value given by a constant initializer expression.
+ *
+ * Globals are referenced through global indices, starting with the smallest index not referencing a global import.
+ */
 final case class Global(globalType: GlobalType, init: Expr) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreGlobalSection
 }
@@ -515,20 +525,21 @@ enum ElemMode {
   case Declarative
 }
 
-/** The initial contents of a table is uninitialized. Element segments can be used to initialize a subrange of a table
-  * from a static vector of elements.
-  *
-  * The elems component of a module defines a vector of element segments. Each element segment defines a reference type
-  * and a corresponding list of constant element expressions.
-  *
-  * Element segments have a mode that identifies them as either passive, active, or declarative. A passive element
-  * segment’s elements can be copied to a table using the table.init instruction. An active element segment copies its
-  * elements into a table during instantiation, as specified by a table index and a constant expression defining an
-  * offset into that table. A declarative element segment is not available at runtime but merely serves to
-  * forward-declare references that are formed in code with instructions like ref.func.
-  *
-  * Element segments are referenced through element indices.
-  */
+/**
+ * The initial contents of a table is uninitialized. Element segments can be used to initialize a subrange of a table
+ * from a static vector of elements.
+ *
+ * The elems component of a module defines a vector of element segments. Each element segment defines a reference type
+ * and a corresponding list of constant element expressions.
+ *
+ * Element segments have a mode that identifies them as either passive, active, or declarative. A passive element
+ * segment’s elements can be copied to a table using the table.init instruction. An active element segment copies its
+ * elements into a table during instantiation, as specified by a table index and a constant expression defining an
+ * offset into that table. A declarative element segment is not available at runtime but merely serves to
+ * forward-declare references that are formed in code with instructions like ref.func.
+ *
+ * Element segments are referenced through element indices.
+ */
 final case class Elem(refType: RefType, init: Chunk[Expr], mode: ElemMode) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreElemSection
 }
@@ -540,18 +551,19 @@ enum DataMode {
   case Active(memory: MemIdx, offset: Expr)
 }
 
-/** The initial contents of a memory are zero bytes. Data segments can be used to initialize a range of memory from a
-  * static vector of bytes.
-  *
-  * The datas component of a module defines a vector of data segments.
-  *
-  * Like element segments, data segments have a mode that identifies them as either passive or active. A passive data
-  * segment’s contents can be copied into a memory using the memory.init instruction. An active data segment copies its
-  * contents into a memory during instantiation, as specified by a memory index and a constant expression defining an
-  * offset into that memory.
-  *
-  * Data segments are referenced through data indices.
-  */
+/**
+ * The initial contents of a memory are zero bytes. Data segments can be used to initialize a range of memory from a
+ * static vector of bytes.
+ *
+ * The datas component of a module defines a vector of data segments.
+ *
+ * Like element segments, data segments have a mode that identifies them as either passive or active. A passive data
+ * segment’s contents can be copied into a memory using the memory.init instruction. An active data segment copies its
+ * contents into a memory during instantiation, as specified by a memory index and a constant expression defining an
+ * offset into that memory.
+ *
+ * Data segments are referenced through data indices.
+ */
 final case class Data(init: Chunk[Byte], mode: DataMode) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreDataSection
 }
@@ -562,9 +574,10 @@ final case class DataCount(count: Int) extends Section[CoreIndexSpace] {
 
 // Start function
 
-/** The start component of a module declares the function index of a start function that is automatically invoked when
-  * the module is instantiated, after tables and memories have been initialized.
-  */
+/**
+ * The start component of a module declares the function index of a start function that is automatically invoked when
+ * the module is instantiated, after tables and memories have been initialized.
+ */
 final case class Start(func: FuncIdx) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreStartSection
 }
@@ -577,12 +590,13 @@ enum ExportDesc {
   case Global(globalIdx: GlobalIdx)
 }
 
-/** The exports component of a module defines a set of exports that become accessible to the host environment once the
-  * module has been instantiated.
-  *
-  * Each export is labeled by a unique name. Exportable definitions are functions, tables, memories, and globals, which
-  * are referenced through a respective descriptor.
-  */
+/**
+ * The exports component of a module defines a set of exports that become accessible to the host environment once the
+ * module has been instantiated.
+ *
+ * Each export is labeled by a unique name. Exportable definitions are functions, tables, memories, and globals, which
+ * are referenced through a respective descriptor.
+ */
 final case class Export(name: Name, desc: ExportDesc) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreExportSection
 }
@@ -596,15 +610,16 @@ enum ImportDesc {
   case Global(globalIdx: GlobalType)
 }
 
-/** The imports component of a module defines a set of imports that are required for instantiation.
-  *
-  * Each import is labeled by a two-level name space, consisting of a module name and a name for an entity within that
-  * module. Importable definitions are functions, tables, memories, and globals. Each import is specified by a
-  * descriptor with a respective type that a definition provided during instantiation is required to match.
-  *
-  * Every import defines an index in the respective index space. In each index space, the indices of imports go before
-  * the first index of any definition contained in the module itself.
-  */
+/**
+ * The imports component of a module defines a set of imports that are required for instantiation.
+ *
+ * Each import is labeled by a two-level name space, consisting of a module name and a name for an entity within that
+ * module. Importable definitions are functions, tables, memories, and globals. Each import is specified by a descriptor
+ * with a respective type that a definition provided during instantiation is required to match.
+ *
+ * Every import defines an index in the respective index space. In each index space, the indices of imports go before
+ * the first index of any definition contained in the module itself.
+ */
 final case class Import(module: Name, name: Name, desc: ImportDesc) extends Section[CoreIndexSpace] {
   override def sectionType: SectionType[CoreIndexSpace] = SectionType.CoreImportSection
 }
@@ -674,9 +689,10 @@ enum BlockType {
   case Value(valType: ValType)
 }
 
-/** Numeric instructions provide basic operations over numeric values of specific type. These operations closely match
-  * respective operations available in hardware.
-  */
+/**
+ * Numeric instructions provide basic operations over numeric values of specific type. These operations closely match
+ * respective operations available in hardware.
+ */
 sealed trait NumericInstr
 sealed trait IRelOp extends NumericInstr
 sealed trait FRelOp extends NumericInstr
@@ -693,9 +709,10 @@ type BinOp  = IBinOp | FBinOp
 type TestOp = ITestOp
 type RelOp  = IRelOp | FRelOp
 
-/** Vector instructions (also known as SIMD instructions, single instruction multiple data) provide basic operations
-  * over values of vector type.
-  */
+/**
+ * Vector instructions (also known as SIMD instructions, single instruction multiple data) provide basic operations over
+ * values of vector type.
+ */
 sealed trait VectorInstr
 sealed trait VVUnOp   extends VectorInstr
 sealed trait VVBinOp  extends VectorInstr
@@ -720,28 +737,34 @@ type VBinOp  = VIBinOp | VFBinOp | VIMinMaxOp | VISatBinOp | Instr.VIMul.type | 
 type VTestOp = VITestOp
 type VRelOp  = VIRelOp | VFRelOp
 
-/** Instructions in this group are concerned with accessing references.
-  */
+/**
+ * Instructions in this group are concerned with accessing references.
+ */
 sealed trait ReferenceInstr
 
-/** Instructions in this group can operate on operands of any value type.
-  */
+/**
+ * Instructions in this group can operate on operands of any value type.
+ */
 sealed trait ParametricInstr
 
-/** Variable instructions are concerned with access to local or global variables.
-  */
+/**
+ * Variable instructions are concerned with access to local or global variables.
+ */
 sealed trait VariableInstr
 
-/** Instructions in this group are concerned with tables table.
-  */
+/**
+ * Instructions in this group are concerned with tables table.
+ */
 sealed trait TableInstr
 
-/** Instructions in this group are concerned with linear memory.
-  */
+/**
+ * Instructions in this group are concerned with linear memory.
+ */
 sealed trait MemoryInstr
 
-/** Instructions in this group affect the flow of control.
-  */
+/**
+ * Instructions in this group affect the flow of control.
+ */
 sealed trait ControlInstr
 
 enum Instr {
@@ -854,22 +877,22 @@ enum Instr {
   case V128AnyTrue extends Instr with VectorInstr with VVTestOp
 
   case VI8x16Shuffle(
-      laneIdx0: LaneIdx,
-      laneIdx1: LaneIdx,
-      laneIdx2: LaneIdx,
-      laneIdx3: LaneIdx,
-      laneIdx4: LaneIdx,
-      laneIdx5: LaneIdx,
-      laneIdx6: LaneIdx,
-      laneIdx7: LaneIdx,
-      laneIdx8: LaneIdx,
-      laneIdx9: LaneIdx,
-      laneIdx10: LaneIdx,
-      laneIdx11: LaneIdx,
-      laneIdx12: LaneIdx,
-      laneIdx13: LaneIdx,
-      laneIdx14: LaneIdx,
-      laneIdx15: LaneIdx
+    laneIdx0: LaneIdx,
+    laneIdx1: LaneIdx,
+    laneIdx2: LaneIdx,
+    laneIdx3: LaneIdx,
+    laneIdx4: LaneIdx,
+    laneIdx5: LaneIdx,
+    laneIdx6: LaneIdx,
+    laneIdx7: LaneIdx,
+    laneIdx8: LaneIdx,
+    laneIdx9: LaneIdx,
+    laneIdx10: LaneIdx,
+    laneIdx11: LaneIdx,
+    laneIdx12: LaneIdx,
+    laneIdx13: LaneIdx,
+    laneIdx14: LaneIdx,
+    laneIdx15: LaneIdx
   ) extends Instr with VectorInstr
 
   case VI18x16Swizzle                                              extends Instr with VectorInstr
@@ -1110,6 +1133,7 @@ object Name {
   def fromBytes(bytes: Chunk[Byte]): Name = new String(bytes.toArray, StandardCharsets.UTF_8)
 
   extension (name: Name) {
+    def asString: String     = name
     def toBytes: Chunk[Byte] = Chunk.fromArray(name.getBytes(StandardCharsets.UTF_8))
   }
 }

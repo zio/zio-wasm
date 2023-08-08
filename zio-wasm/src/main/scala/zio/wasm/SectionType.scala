@@ -16,11 +16,12 @@ trait SectionType[IS <: IndexSpace] {
   /** The binary section ID */
   def binaryId: SectionId
 
-  /** Index space - can depend on the actual value.
-    *
-    * An example is component model's import and alias sections, which can refer to elements of various other index
-    * spaces.
-    */
+  /**
+   * Index space - can depend on the actual value.
+   *
+   * An example is component model's import and alias sections, which can refer to elements of various other index
+   * spaces.
+   */
   def indexSpace(section: Section): IS
 
   def tryGetIndexSpace(anySection: zio.wasm.Section[IS]): Option[IS] =
@@ -29,9 +30,10 @@ trait SectionType[IS <: IndexSpace] {
       case _                => None
     }
 
-  /** If true, sections of this type can be grouped together and serialized as a vector. If false, each section is
-    * serialized as a separate binary section.
-    */
+  /**
+   * If true, sections of this type can be grouped together and serialized as a vector. If false, each section is
+   * serialized as a separate binary section.
+   */
   def allowsGrouping: Boolean
 }
 

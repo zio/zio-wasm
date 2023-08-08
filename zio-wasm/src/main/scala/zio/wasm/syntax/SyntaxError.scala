@@ -4,7 +4,7 @@ import zio.parser.Parser.ParserError
 
 enum SyntaxError {
   case InvalidLEB128
-  case InvalidNumType
+  case InvalidNumType(byte: Byte)
   case InvalidVecType
   case InvalidRefType
   case UnexpectedByte
@@ -17,10 +17,12 @@ enum SyntaxError {
   case InnerParserError(error: ParserError[SyntaxError])
   case FunctionAndCodeSectionSizeMismatch
   case EmptyVector
+  case OldComponentVersion(byte: Byte)
+  case NewComponentVersion(byte: Byte)
 
   override def toString: String = this match {
     case InvalidLEB128                      => "Invalid LEB128"
-    case InvalidNumType                     => "Invalid num type"
+    case InvalidNumType(byte)               => s"Invalid num type ($byte)"
     case InvalidVecType                     => "Invalid vec type"
     case InvalidRefType                     => "Invalid ref type"
     case UnexpectedByte                     => "Unexpected byte"
@@ -35,5 +37,7 @@ enum SyntaxError {
     case InnerParserError(error)            => error.toString
     case FunctionAndCodeSectionSizeMismatch => "Function and code section size mismatch"
     case EmptyVector                        => "Unexpected empty vector"
+    case OldComponentVersion(version)       => s"Old component version: $version"
+    case NewComponentVersion(version)       => s"New component version: $version"
   }
 }

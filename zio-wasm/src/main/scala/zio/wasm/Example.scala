@@ -9,10 +9,10 @@ import scala.collection.mutable
 object Example extends ZIOAppDefault {
 
   def wrapFunctionCall(
-      originalIdx: FuncIdx,
-      funcType: FuncType,
-      moduleName: Option[Name],
-      functionName: Option[Name]
+    originalIdx: FuncIdx,
+    funcType: FuncType,
+    moduleName: Option[Name],
+    functionName: Option[Name]
   ): Option[Expr] =
     if (moduleName.isDefined && functionName.isDefined) {
       // imported function
@@ -125,20 +125,19 @@ object Example extends ZIOAppDefault {
     )
 
     // Replacing call instructions
-    module
-      .mapInstr {
-        case Instr.Call(funcIdx)   =>
-          Instr.Call(mapping.getOrElse(funcIdx, funcIdx))
-        case i: Instr.CallIndirect =>
-          indirectMapping.get(i) match {
-            case Some(funcIdx) =>
-              Instr.Call(funcIdx)
-            case None          =>
-              i
-          }
-        case i: Instr              =>
-          i
-      }
+    module.mapInstr {
+      case Instr.Call(funcIdx)   =>
+        Instr.Call(mapping.getOrElse(funcIdx, funcIdx))
+      case i: Instr.CallIndirect =>
+        indirectMapping.get(i) match {
+          case Some(funcIdx) =>
+            Instr.Call(funcIdx)
+          case None          =>
+            i
+        }
+      case i: Instr              =>
+        i
+    }
       .addTypes(newTypes.result())
       .addFunctions(newFuncs.result())
       .addTable(Table(TableType(Limits(originalFuncCount, Some(originalFuncCount)), RefType.FuncRef)))
@@ -212,7 +211,7 @@ object Example extends ZIOAppDefault {
       _      <- Files.writeBytes(Path("examples/wasm_game_of_life_bg_fnwrap.wasm"), bytes4)
     } yield ()
 
-    /*
+  /*
     NOTES:
       To wrap a Call we need to inject a function which gets exactly the same parameters as the wrapped one,
       then loads all parameters from local to stack, and calls the original function.
@@ -228,5 +227,5 @@ object Example extends ZIOAppDefault {
       We map that to the wrapped function index generated for direct calls, and set this function reference in
       a new, fresh table (added by the transformation).
       Then we call indirectly using this new table.
-     */
+   */
 }

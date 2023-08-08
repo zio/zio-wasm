@@ -2,8 +2,6 @@ package zio.wasm
 
 import zio.*
 import zio.nio.file.*
-import zio.prelude.fx.*
-import zio.stream.*
 import zio.wasm.componentmodel.*
 import zio.wasm.componentmodel.syntax.Binary
 import zio.wasm.metadata.*

@@ -20,7 +20,7 @@ object BuildHelper {
     list.map(v => (v.split('.').take(2).mkString("."), v)).toMap
   }
 
-  lazy val Scala3: String   = versions("3.3")
+  lazy val Scala3: String = versions("3.3")
 
   val SilencerVersion = "1.7.12"
 
@@ -167,7 +167,7 @@ object BuildHelper {
         List("2.12", "2.11+", "2.12+", "2.11-2.12", "2.12-2.13", "2.x")
       case Some((2, 13)) =>
         List("2.13", "2.11+", "2.12+", "2.13+", "2.12-2.13", "2.x")
-      case Some((3, 0))  =>
+      case Some((3, _))  =>
         List("dotty", "2.11+", "2.12+", "2.13+", "3.x")
       case _             =>
         List()
@@ -231,10 +231,12 @@ object BuildHelper {
     Seq(
       scalacOptions += "-language:experimental.macros",
       libraryDependencies ++= {
-        Seq(
-          "org.scala-lang" % "scala-reflect"  % scalaVersion.value % "provided",
-          "org.scala-lang" % "scala-compiler" % scalaVersion.value % "provided"
-        )
+        if (scalaVersion.value == Scala3) Seq()
+        else
+          Seq(
+            "org.scala-lang" % "scala-reflect"  % scalaVersion.value % "provided",
+            "org.scala-lang" % "scala-compiler" % scalaVersion.value % "provided"
+          )
       }
     )
 

@@ -1,11 +1,12 @@
-import BuildHelper._
+import BuildHelper.*
+import xerial.sbt.Sonatype.GitHubHosting
 
 inThisBuild(
   List(
-    organization  := "dev.zio",
-    homepage      := Some(url("https://zio.dev/zio-wasm/")),
-    licenses      := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
-    developers    := List(
+    organization           := "dev.zio",
+    homepage               := Some(url("https://zio.dev/zio-wasm/")),
+    licenses               := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")),
+    developers             := List(
       Developer(
         "jdegoes",
         "John De Goes",
@@ -21,9 +22,23 @@ inThisBuild(
     ),
     resolvers +=
       "Sonatype OSS Snapshots 01" at "https://s01.oss.sonatype.org/content/repositories/snapshots",
-    pgpPassphrase := sys.env.get("PGP_PASSWORD").map(_.toArray),
-    pgpPublicRing := file("/tmp/public.asc"),
-    pgpSecretRing := file("/tmp/secret.asc"),
+    publishTo              := sonatypePublishToBundle.value,
+    sonatypeTimeoutMillis  := 300 * 60 * 1000,
+    sonatypeProjectHosting := Some(
+      GitHubHosting("zio", "zio-wasm", "daniel.vigovszky@gmail.com")
+    ),
+    sonatypeCredentialHost := "oss.sonatype.org",
+    sonatypeRepository     := "https://oss.sonatype.org/service/local",
+    credentials ++=
+      (for {
+        username <- Option(System.getenv().get("SONATYPE_USERNAME"))
+        password <- Option(System.getenv().get("SONATYPE_PASSWORD"))
+      } yield Credentials(
+        "Sonatype Nexus Repository Manager",
+        "oss.sonatype.org",
+        username,
+        password
+      )).toSeq,
     resolvers +=
       "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
   )

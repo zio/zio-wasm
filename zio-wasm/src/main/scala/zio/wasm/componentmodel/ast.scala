@@ -153,17 +153,20 @@ final case class Component(sections: Sections[ComponentIndexSpace]) extends Sect
   ): (SectionReference, Component) =
     (
       ComponentSectionType.ComponentAliasSection.indexSpace(alias) match {
-        case ComponentIndexSpace.Component  => SectionReference.Component(lastComponentIdx.next)
-        case ComponentIndexSpace.Instance   => SectionReference.Instance(lastInstanceIdx.next)
-        case ComponentIndexSpace.Module     => SectionReference.Module(lastModuleIdx.next)
-        case ComponentIndexSpace.Type       => SectionReference.ComponentType(lastComponentTypeIdx.next)
-        case ComponentIndexSpace.Func       => SectionReference.ComponentFunc(lastComponentFuncIdx.next)
-        case ComponentIndexSpace.Value      => SectionReference.Value(lastValueIdx.next)
-        case ComponentIndexSpace.CoreType   => ??? // TODO
-        case ComponentIndexSpace.CoreTable  => ??? // TODO
-        case ComponentIndexSpace.CoreFunc   => ??? // TODO
-        case ComponentIndexSpace.CoreGlobal => ??? // TODO
-        case ComponentIndexSpace.CoreMem    => ??? // TODO
+        case ComponentIndexSpace.Component    => SectionReference.Component(lastComponentIdx.next)
+        case ComponentIndexSpace.Instance     => SectionReference.Instance(lastInstanceIdx.next)
+        case ComponentIndexSpace.Module       => SectionReference.Module(lastModuleIdx.next)
+        case ComponentIndexSpace.Type         => SectionReference.ComponentType(lastComponentTypeIdx.next)
+        case ComponentIndexSpace.Func         => SectionReference.ComponentFunc(lastComponentFuncIdx.next)
+        case ComponentIndexSpace.Value        => SectionReference.Value(lastValueIdx.next)
+        case ComponentIndexSpace.CoreType     => ??? // TODO
+        case ComponentIndexSpace.CoreTable    => ??? // TODO
+        case ComponentIndexSpace.CoreFunc     => ??? // TODO
+        case ComponentIndexSpace.CoreGlobal   => ??? // TODO
+        case ComponentIndexSpace.CoreMem      => ??? // TODO
+        case ComponentIndexSpace.CoreInstance => ??? // TODO
+        case ComponentIndexSpace.Start        => ??? // TODO
+        case ComponentIndexSpace.Custom       => ??? // TODO
       },
       insertionPoint match {
         case LastOfGroup => this.copy(sections = sections.addToLastGroup(alias))

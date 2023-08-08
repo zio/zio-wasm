@@ -8,6 +8,7 @@ import zio.prelude.*
 import zio.wasm.*
 import zio.wasm.internal.BinarySyntax.*
 
+import scala.annotation.nowarn
 import scala.reflect.ClassTag
 
 object Binary {
@@ -1412,7 +1413,7 @@ object Binary {
             )
           case Instr.VILt(shape, signedness)                   =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 37
                 case (IShape.I8x16, Signedness.Unsigned) => 38
                 case (IShape.I16x8, Signedness.Signed)   => 47
@@ -1423,7 +1424,7 @@ object Binary {
             )
           case Instr.VIGt(shape, signedness)                   =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 39
                 case (IShape.I8x16, Signedness.Unsigned) => 40
                 case (IShape.I16x8, Signedness.Signed)   => 49
@@ -1434,7 +1435,7 @@ object Binary {
             )
           case Instr.VILe(shape, signedness)                   =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 41
                 case (IShape.I8x16, Signedness.Unsigned) => 42
                 case (IShape.I16x8, Signedness.Signed)   => 51
@@ -1445,7 +1446,7 @@ object Binary {
             )
           case Instr.VIGe(shape, signedness)                   =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 43
                 case (IShape.I8x16, Signedness.Unsigned) => 44
                 case (IShape.I16x8, Signedness.Signed)   => 53
@@ -1671,7 +1672,7 @@ object Binary {
             )
           case Instr.VIMin(shape, signedness)                  =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 118
                 case (IShape.I8x16, Signedness.Unsigned) => 119
                 case (IShape.I16x8, Signedness.Signed)   => 150
@@ -1682,7 +1683,7 @@ object Binary {
             )
           case Instr.VIMax(shape, signedness)                  =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 120
                 case (IShape.I8x16, Signedness.Unsigned) => 121
                 case (IShape.I16x8, Signedness.Signed)   => 152
@@ -1693,7 +1694,7 @@ object Binary {
             )
           case Instr.VIAddSat(shape, signedness)               =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 111
                 case (IShape.I8x16, Signedness.Unsigned) => 112
                 case (IShape.I16x8, Signedness.Signed)   => 143
@@ -1702,7 +1703,7 @@ object Binary {
             )
           case Instr.VISubSat(shape, signedness)               =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I8x16, Signedness.Signed)   => 114
                 case (IShape.I8x16, Signedness.Unsigned) => 115
                 case (IShape.I16x8, Signedness.Signed)   => 146
@@ -1726,7 +1727,7 @@ object Binary {
             )
           case Instr.VIExtMul(shape, half, signedness)         =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, half, signedness) match {
+              ((shape, half, signedness): @nowarn) match {
                 case (IShape.I16x8, Half.Low, Signedness.Signed)    => 156
                 case (IShape.I16x8, Half.High, Signedness.Signed)   => 157
                 case (IShape.I16x8, Half.Low, Signedness.Unsigned)  => 158
@@ -1743,7 +1744,7 @@ object Binary {
             )
           case Instr.VIExtAddPairwise(shape, signedness)       =>
             opcode(0xfd.toByte) ~> u32.asPrinter(
-              (shape, signedness) match {
+              ((shape, signedness): @nowarn) match {
                 case (IShape.I16x8, Signedness.Signed)   => 124
                 case (IShape.I16x8, Signedness.Unsigned) => 125
                 case (IShape.I32x4, Signedness.Signed)   => 126
@@ -1881,14 +1882,14 @@ object Binary {
               case VecType.V128 => opcode(0xfd.toByte) ~> u32.asPrinter(11)
             }) ~> Binary.memArg.asPrinter(memArg)
           case Instr.Load8(typ, signedness, memArg)            =>
-            ((typ, signedness) match {
+            (((typ, signedness): @nowarn) match {
               case (NumType.I32, Signedness.Signed)   => opcode(0x2c)
               case (NumType.I32, Signedness.Unsigned) => opcode(0x2d)
               case (NumType.I64, Signedness.Signed)   => opcode(0x30)
               case (NumType.I64, Signedness.Unsigned) => opcode(0x31)
             }) ~> Binary.memArg.asPrinter(memArg)
           case Instr.Load16(typ, signedness, memArg)           =>
-            ((typ, signedness) match {
+            (((typ, signedness): @nowarn) match {
               case (NumType.I32, Signedness.Signed)   => opcode(0x2e)
               case (NumType.I32, Signedness.Unsigned) => opcode(0x2f)
               case (NumType.I64, Signedness.Signed)   => opcode(0x32)

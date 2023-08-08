@@ -36,6 +36,7 @@ object ComponentExample extends ZIOAppDefault {
              component.imports.head.desc match {
                case ExternDesc.Instance(typeIdx) =>
                  s"\n\nFirst import is importing instance of type ${component.getComponentType(typeIdx)}"
+               case _                            => "???"
              }
            )
 
